@@ -2,39 +2,48 @@ name: 彩票预测
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   predict:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
       - name: 运行预测
         run: |
           python 1.py 10
           python 2.py
           python 3.py
+
+      - name: 复制报告
+        run: |
           mkdir -p /tmp/reports
           cp reports/*.html /tmp/reports/ 2>/dev/null || true
-      - name: 生成首页
-        run: |
           echo '<h1>🎯 彩票预测报告</h1>' > /tmp/reports/index.html
           echo "<p>更新时间: $(date '+%Y-%m-%d %H:%M')</p>" >> /tmp/reports/index.html
-          echo '<hr>' >> /tmp/reports/index.html
           for f in /tmp/reports/*.html; do
             name=$(basename "$f")
             if [ "$name" != "index.html" ]; then
               echo "<a href=\"$name\">📄 $name</a><br>" >> /tmp/reports/index.html
             fi
           done
+
       - name: 推送到 gh-pages
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "bot"
           git config user.email "bot@bot.com"
-          git checkout --orphan gh-pages
-          rm -rf ./*
-          cp /tmp/reports/*.html .
-          git add .
-          git commit -m "更新报告 $(date '+%Y-%m-%d')" --allow-empty
-          git push origin gh-pages --force
+          git remote set-url origin https://x-access-token:${TOKEN}@github.com/${{ github.repository }}.git
+          git checkout --orphan gh-pages 2>&1
+          rm -rf ./* 2>&1
+          cp /tmp/reports/*.html . 2>&1
+          git add . 2>&1
+          git commit -m "更新报告 $(date '+%Y-%m-%d')" --allow-empty 2>&1
+          git push origin gh-pages --force 2>&1
