@@ -1,6 +1,8 @@
 name: 彩票预测
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 10 * * *'
 
 permissions:
   contents: write
@@ -26,7 +28,7 @@ jobs:
           mkdir -p /tmp/reports
           cp reports/*.html /tmp/reports/ 2>/dev/null || true
           echo '<h1>🎯 彩票预测报告</h1>' > /tmp/reports/index.html
-          echo "<p>更新时间: $(date '+%Y-%m-%d %H:%M')</p>" >> /tmp/reports/index.html
+          echo "<p>更新时间: $(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M')</p>" >> /tmp/reports/index.html
           for f in /tmp/reports/*.html; do
             name=$(basename "$f")
             if [ "$name" != "index.html" ]; then
