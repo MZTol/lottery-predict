@@ -23,6 +23,7 @@ def _num_entries(data, field):
 
 def _style():
     return """
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body { font-family: -apple-system, 'Segoe UI', sans-serif; max-width: 960px; margin: 0 auto; padding: 20px; background: #f5f5f5; }
         h1 { color: #1a1a2e; border-bottom: 3px solid #e94560; padding-bottom: 8px; }
@@ -53,9 +54,31 @@ def _style():
         .stat-card { background: #fff; border-radius: 6px; padding: 8px; text-align: center; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
         .stat-card .val { font-size: 22px; font-weight: bold; }
         .stat-card .lbl { font-size: 12px; color: #666; }
-        .matrix { font-size: 12px; }
+        .matrix { font-size: 12px; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
         .matrix td { padding: 2px 4px; min-width: 22px; }
         .matrix .period-col { text-align: left; font-weight: bold; padding-right: 8px; min-width: 70px; }
+        .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        @media (max-width: 768px) {
+            body { padding: 10px; }
+            h1 { font-size: 20px; }
+            h2 { font-size: 16px; margin-top: 20px; }
+            table { font-size: 11px; }
+            th, td { padding: 3px 4px; }
+            .num { font-size: 13px; padding: 1px 3px; }
+            .group-box { padding: 8px 10px; }
+            .summary-grid { grid-template-columns: repeat(2, 1fr); gap: 4px; }
+            .stat-card { padding: 4px; }
+            .stat-card .val { font-size: 16px; }
+            .grid-cell { font-size: 10px; padding: 3px 0; }
+            .grid { grid-template-columns: repeat(auto-fill, minmax(28px, 1fr)); gap: 1px; }
+        }
+        @media (max-width: 480px) {
+            .summary-grid { grid-template-columns: 1fr; }
+            .meta { font-size: 12px; }
+            .grid { grid-template-columns: repeat(auto-fill, minmax(22px, 1fr)); }
+            .grid-cell { font-size: 9px; padding: 2px 0; }
+            .bar { height: 14px; }
+        }
     </style>
     """
 
