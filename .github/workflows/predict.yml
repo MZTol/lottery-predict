@@ -41,9 +41,20 @@ jobs:
           git config user.name "bot"
           git config user.email "bot@bot.com"
           git remote set-url origin https://x-access-token:${TOKEN}@github.com/${{ github.repository }}.git
-          git checkout --orphan gh-pages 2>&1
-          git rm -rf . 2>&1
-          cp /tmp/reports/*.html . 2>&1
-          git add . 2>&1
-          git commit -m "更新报告 $(date '+%Y-%m-%d')" --allow-empty 2>&1
-          git push origin gh-pages --force 2>&1
+
+          # 切换到 gh-pages 分支，不存在则创建
+          git checkout gh-pages 2>/dev/null || git checkout --orphan gh-pages
+
+          # 清理旧文件（排除 .git）
+          git rm -rf . 2>/dev/null || true
+
+          # 复制新报告
+          cp /tmp/reports/*.html .
+
+          git add .
+          if git diff --cached --quiet; then
+            echo "无变化，跳过提交"
+          else
+            git commit -m "更新报告 $(date '+%Y-%m-%d %H:%M')"
+            git push origin gh-pages --force
+          fi
