@@ -42,7 +42,7 @@ jobs:
           git config user.email "bot@bot.com"
           git remote set-url origin https://x-access-token:${TOKEN}@github.com/${{ github.repository }}.git
           git checkout --orphan gh-pages 2>&1
-          rm -rf ./* 2>&1
+          git rm -rf . 2>&1
           cp /tmp/reports/*.html . 2>&1
           git add . 2>&1
           git commit -m "更新报告 $(date '+%Y-%m-%d')" --allow-empty 2>&1
