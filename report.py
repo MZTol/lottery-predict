@@ -222,8 +222,8 @@ def _expert_section_html(experts, all_picks, labels):
 
     cons_f = fc.most_common(10)
     cons_b = bc.most_common(6)
-    max_fc = max(c for _, c in cons_f) or 1
-    max_bc = max(c for _, c in cons_b) or 1
+    max_fc = max((c for _, c in cons_f), default=1)
+    max_bc = max((c for _, c in cons_b), default=1)
 
     cons_rows = []
     for n, cnt in cons_f:
