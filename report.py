@@ -176,6 +176,57 @@ def _recommendation(all_preds, counter, pick):
     return top
 
 
+def _remaining_section(predictions, counter, total_n):
+    pred_all = set()
+    for name in predictions:
+        pred_all.update(int(n) for n in predictions[name])
+
+    all_nums = set(range(1, total_n + 1))
+    remain = sorted(all_nums - pred_all)
+
+    if remain:
+        nums = " ".join(f'<span class="num">{n:02d}</span>' for n in remain)
+        return f'<p style="font-size:16px">{nums}</p><p class="meta">共 {len(remain)}/{total_n} 个号码未被覆盖</p>'
+
+    threshold = 1
+    cold = sorted(n for n in all_nums if counter.get(n, 0) <= threshold)
+    if not cold:
+        threshold = 2
+        cold = sorted(n for n, _ in counter.most_common() if counter[n] <= threshold)
+    if cold:
+        nums = " ".join(f'<span class="num">{n:02d}</span>' for n in cold)
+        return f'<p style="font-size:16px">{nums}</p><p class="meta">已覆盖全部号码，以上为采样频次 ≤{threshold} 的最冷号</p>'
+
+    return '<p class="meta">无可推荐号码</p>'
+
+
+def _expert_remaining_section(expert_data, total_n, field):
+    all_nums = set(range(1, total_n + 1))
+    expert_nums = set()
+    expert_counter = Counter()
+
+    if expert_data:
+        for _, _, ed_all_picks in expert_data:
+            ek = "front" if field in ("front", "numbers") else "back"
+            picks = ed_all_picks.get(ek, [])
+            expert_nums.update(picks)
+            expert_counter.update(picks)
+
+    remain = sorted(all_nums - expert_nums)
+
+    if remain:
+        nums = " ".join(f'<span class="num">{n:02d}</span>' for n in remain)
+        return f'<p style="font-size:16px">{nums}</p><p class="meta">共 {len(remain)}/{total_n} 个号码未被专家覆盖</p>'
+
+    min_cnt = min(expert_counter.get(n, 0) for n in all_nums) if expert_counter else 0
+    cold = sorted(n for n in all_nums if expert_counter.get(n, 0) == min_cnt)
+    if cold:
+        nums = " ".join(f'<span class="num">{n:02d}</span>' for n in cold)
+        return f'<p style="font-size:16px">{nums}</p><p class="meta">已覆盖全部号码，以上为专家提及最少（{min_cnt}次）的号码</p>'
+
+    return ""
+
+
 def _omission_bar(data, field, total_n):
     omission = _compute_omission(data, field, total_n)
     items = sorted(enumerate(omission, 1), key=lambda x: -x[1])[:10]
@@ -309,6 +360,11 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 
 <h3>📋 五组预测</h3>
 {_predictions_table(predictions, {}, actual_set)}
+
+<h3>🗑️ 系统杀号后剩余</h3>
+<div class="group-box">
+{_remaining_section(predictions, counter, total_n)}
+</div>
 """
 
     if expert_data:
@@ -316,6 +372,18 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
             label, experts, all_picks = ed
             lbl_pair = {"前区": ("前区", "后区"), "后区": ("前区", "后区"), "红球": ("红球", "蓝球"), "蓝球": ("红球", "蓝球")}
             html += _expert_section_html(experts, all_picks, lbl_pair.get(label, (label, "")))
+
+        for label, field, predictions, counter, cfg in areas:
+            total_n = cfg["total"]
+            expert_remain = _expert_remaining_section(expert_data, total_n, field)
+            if expert_remain:
+                html += f"""
+<hr>
+<h2>📌 {label} 专家杀号后剩余</h2>
+<div class="group-box">
+{expert_remain}
+</div>
+"""
 
     html += """
 <hr>
