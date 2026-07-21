@@ -87,8 +87,8 @@ if __name__ == "__main__":
     step = len(middle_sorted) / pick_count
     kill_c = [str(n).zfill(2) for n in (middle_sorted[int(i * step)] for i in range(pick_count))]
 
-    random.seed(next_seed)
-    kill_a = [str(n).zfill(2) for n in sorted(random.sample(middle_sorted, pick_count))]
+    rng = random.Random(next_seed)
+    kill_a = [str(n).zfill(2) for n in sorted(rng.sample(middle_sorted, pick_count))]
 
     predictions = {"hot": hot, "cold": cold, "kill_a": kill_a, "kill_b": kill_b, "kill_c": kill_c}
 

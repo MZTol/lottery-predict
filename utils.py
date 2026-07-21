@@ -8,14 +8,14 @@ from datetime import datetime, timedelta
 def weighted_sample(weights, k, seed, cooccur=None, cooccur_factor=0.4):
     indices = list(range(len(weights)))
     w = list(weights)
-    random.seed(seed)
+    rng = random.Random(seed)
     result = []
     for _ in range(k):
         total = sum(w)
         if total <= 0:
-            pick = random.choice(indices)
+            pick = rng.choice(indices)
         else:
-            r = random.random() * total
+            r = rng.random() * total
             cumulative = 0
             pick = indices[0]
             for i, idx in enumerate(indices):
@@ -119,6 +119,8 @@ def check_sum_range(numbers, cfg):
 
 def check_odd_even_ratio(numbers):
     ns = [int(n) for n in numbers]
+    if len(ns) <= 1:
+        return True
     odd = sum(1 for n in ns if n % 2 == 1)
     r = odd / len(ns)
     return 0.25 <= r <= 0.75
@@ -139,6 +141,8 @@ def check_zone_distribution(numbers, cfg, max_per_zone=None):
 
 def check_consecutive(numbers, max_consec=4):
     ns = sorted(int(n) for n in numbers)
+    if len(ns) <= 1:
+        return True
     streak = 1
     for i in range(1, len(ns)):
         if ns[i] == ns[i - 1] + 1:
@@ -152,6 +156,8 @@ def check_consecutive(numbers, max_consec=4):
 
 def check_spread(numbers, cfg):
     ns = [int(n) for n in numbers]
+    if len(ns) <= 1:
+        return True
     span = max(ns) - min(ns)
     total_n = cfg["total"]
     return span >= total_n * 0.5

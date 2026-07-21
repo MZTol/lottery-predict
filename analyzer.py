@@ -56,13 +56,15 @@ def compute_frequency_weighted(data, cfg):
 
 def compute_omission_exponential(data, cfg):
     total_n, field = cfg["total"], cfg["field"]
-    omission = [0.0] * total_n
-    for entry in data:
+    omission = [len(data)] * total_n
+    for idx, entry in enumerate(data):
         nums = {int(n) for n in entry[field]}
-        for j in range(total_n):
-            omission[j] = 0.0 if (j + 1) in nums else omission[j] * 1.15 + 1.0
-    mx = max(omission) or 1
-    return [o / mx for o in omission]
+        for n in nums:
+            if 1 <= n <= total_n and omission[n - 1] == len(data):
+                omission[n - 1] = idx
+    scores = [(1.15 ** o) - 1 for o in omission]
+    mx = max(scores) or 1
+    return [s / mx for s in scores]
 
 
 def compute_zone_scores(data, cfg):
@@ -93,11 +95,11 @@ def compute_follow_scores(data, cfg):
         return [0] * total_n
     pair_cnt = Counter()
     for i in range(len(data) - 1):
-        curr = {int(n) for n in data[i][field]}
-        nxt = {int(n) for n in data[i + 1][field]}
-        for c in curr:
-            for n in nxt:
-                pair_cnt[(c, n)] += 1
+        newer = {int(n) for n in data[i][field]}
+        older = {int(n) for n in data[i + 1][field]}
+        for old_n in older:
+            for new_n in newer:
+                pair_cnt[(old_n, new_n)] += 1
     latest = {int(n) for n in data[0][field]}
     scores = [sum(pair_cnt.get((c, n), 0) for c in latest) for n in range(1, total_n + 1)]
     mx = max(scores) or 1
@@ -114,7 +116,9 @@ def compute_sum_scores(data, cfg):
     ideal_avg = mean_sum / pick
     scores = [(1 - abs((i + 1) - ideal_avg) / total_n) for i in range(total_n)]
     mn, mx = min(scores), max(scores)
-    return [(s - mn) / (mx - mn) if mx > mn else [0.5] * total_n for s in scores]
+    if mx <= mn:
+        return [0.5] * total_n
+    return [(s - mn) / (mx - mn) for s in scores]
 
 
 def compute_tail_scores(data, cfg):
@@ -129,7 +133,7 @@ def compute_tail_scores(data, cfg):
     latest_tail = Counter(n % 10 for n in _nums(data[0], cfg))
     scores = []
     for i in range(total_n):
-        t = i % 10
+        t = (i + 1) % 10
         deficit = max(0, (tail_prob[t] - latest_tail.get(t, 0) / max(pick, 1)) / max(tail_prob[t], 0.01))
         scores.append(min(deficit, 1.0))
     return scores
@@ -232,20 +236,19 @@ BACKTEST_COUNT = 15
 BACKTEST_SEED_TRIALS = 3
 
 
-def _backtest_window_dims(data, cfg, window):
+def _backtest_window_dims(data, cfg, window, test_count=BACKTEST_COUNT):
     """预计算每个回测期的训练集维度，供多次权重组合复用"""
     entries = []
-    for offset in range(BACKTEST_COUNT):
-        idx = BACKTEST_COUNT - 1 - offset
-        train_start = max(0, idx - window)
-        train = data[train_start:idx]
+    usable_count = min(test_count, max(0, len(data) - 10))
+    for idx in range(usable_count):
+        train = data[idx + 1: idx + 1 + window]
         if len(train) < 10:
             entries.append(None)
             continue
         actual = {int(n) for n in data[idx][cfg["field"]]}
         dims = compute_all_dimensions(train, cfg)
         period_seed = int(data[idx]["period"])
-        weight = 1.0 + (BACKTEST_COUNT - offset) / BACKTEST_COUNT
+        weight = 1.0 + (usable_count - idx) / usable_count
         entries.append((actual, dims, period_seed, weight))
     return entries
 
@@ -272,7 +275,7 @@ def _eval_weights(entries, cfg, wt, seed_trials=BACKTEST_SEED_TRIALS):
 
 def backtest(data, cfg, weights_override=None, window=30, test_count=BACKTEST_COUNT):
     """测试最近test_count期，返回平均命中数"""
-    entries = _backtest_window_dims(data, cfg, window)
+    entries = _backtest_window_dims(data, cfg, window, test_count)
     wt = weights_override or DEFAULT_WEIGHTS
     return _eval_weights(entries, cfg, wt)
 

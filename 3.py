@@ -64,8 +64,8 @@ def _predict(data, cfg, seed):
     step = len(middle_sorted) / max(pick, 1)
     kill_c = [str(n).zfill(2) for n in (middle_sorted[int(i * step)] for i in range(pick))]
 
-    random.seed(seed)
-    kill_a = [str(n).zfill(2) for n in sorted(random.sample(middle_sorted, pick))]
+    rng = random.Random(seed)
+    kill_a = [str(n).zfill(2) for n in sorted(rng.sample(middle_sorted, pick))]
 
     return {"hot": hot, "cold": cold, "kill_a": kill_a, "kill_b": kill_b, "kill_c": kill_c}, counter
 
@@ -98,7 +98,7 @@ if __name__ == "__main__":
         ov = set(int(n) for n in latest_entry[field])
         hits = sum(1 for name in preds for n in preds[name] if int(n) in ov)
         areas.append((label, field, preds, counter, {**cfg_key, "field": field}))
-        print(f"  {label}: 命中 {hits}/{cfg_key['pick']}")
+        print(f"  {label}: 与上期重号 {hits}/{cfg_key['pick']}")
 
     expert_data = []
     experts, all_picks = get_expert_picks(LOTID, next_period, max_articles=15)

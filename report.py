@@ -6,14 +6,12 @@ REPORTS_DIR = os.path.join(os.path.dirname(__file__), "reports")
 
 
 def _compute_omission(data, field, total_n):
-    omission = [0] * total_n
-    for entry in data:
+    omission = [len(data)] * total_n
+    for idx, entry in enumerate(data):
         nums = {int(n) for n in entry[field]}
-        for i in range(total_n):
-            if (i + 1) in nums:
-                omission[i] = 0
-            else:
-                omission[i] += 1
+        for n in nums:
+            if 1 <= n <= total_n and omission[n - 1] == len(data):
+                omission[n - 1] = idx
     return omission
 
 
@@ -158,7 +156,7 @@ def _predictions_table(predictions, counters, actual_set):
         odd = sum(1 for n in nums if int(n) % 2 == 1)
         blocks.append(
             f'<div class="group-box">'
-            f'<div><b>{label}</b> <span class="tag {tag_cls}">命中{hits}</span></div>'
+            f'<div><b>{label}</b> <span class="tag {tag_cls}">重号{hits}</span></div>'
             f'<div style="margin:6px 0">{tags}</div>'
             f'<div class="meta">和值{s} 奇偶{odd}:{len(nums)-odd} 跨度{max(int(n) for n in nums)-min(int(n) for n in nums)}</div>'
             f'</div>'
