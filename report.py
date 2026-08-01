@@ -54,6 +54,10 @@ def _style():
         .stat-card { background: #fff; border-radius: 6px; padding: 8px; text-align: center; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
         .stat-card .val { font-size: 22px; font-weight: bold; }
         .stat-card .lbl { font-size: 12px; color: #666; }
+        .key-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 14px 0 18px; }
+        .summary-card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 11px 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .summary-card .title { color: #16213e; font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+        .summary-card .line { color: #555; font-size: 12px; margin-top: 5px; }
         .matrix { font-size: 12px; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
         .matrix td { padding: 2px 4px; min-width: 22px; }
         .matrix .period-col { text-align: left; font-weight: bold; padding-right: 8px; min-width: 70px; }
@@ -70,6 +74,8 @@ def _style():
             .num { font-size: 13px; padding: 1px 3px; }
             .group-box { padding: 8px 10px; }
             .summary-grid { grid-template-columns: repeat(2, 1fr); gap: 4px; }
+            .key-summary { grid-template-columns: 1fr; gap: 8px; margin: 10px 0 14px; }
+            .summary-card { padding: 9px 10px; }
             .stat-card { padding: 4px; }
             .stat-card .val { font-size: 16px; }
             .grid-cell { font-size: 10px; padding: 3px 0; }
@@ -265,6 +271,90 @@ def _recommendation(all_preds, counter, pick):
     top = [n for n, _ in combined.most_common(pick)]
     top.sort()
     return top
+
+
+def _best_recent_match(data, field, predicted, periods=10):
+    pred_set = {int(n) for n in predicted}
+    best = None
+    for entry in data[:periods]:
+        actual = sorted(int(n) for n in entry[field])
+        hits = sorted(pred_set & set(actual))
+        item = {
+            "period": entry["period"],
+            "hit_count": len(hits),
+            "hits": hits,
+            "actual": actual,
+        }
+        if best is None or item["hit_count"] > best["hit_count"]:
+            best = item
+    return best
+
+
+def _top_omissions(data, field, total_n, limit=5):
+    omission = _compute_omission(data, field, total_n)
+    ranked = sorted(enumerate(omission, 1), key=lambda item: (-item[1], item[0]))
+    return ranked[:limit]
+
+
+def _evaluation_lookup(evaluation):
+    result = {}
+    if not evaluation:
+        return result
+    for area in evaluation.get("areas", []):
+        rec = next((c for c in area.get("comparisons", []) if c.get("name") == "recommendation"), None)
+        if rec:
+            result[area.get("field")] = rec
+    return result
+
+
+def _key_summary_section(data, areas, evaluation=None):
+    eval_by_field = _evaluation_lookup(evaluation)
+    cards = []
+    for label, field, predictions, counter, cfg in areas:
+        pick = cfg["pick"]
+        total_n = cfg["total"]
+        rec = _recommendation(predictions, counter, pick)
+        best = _best_recent_match(data, field, rec, 10)
+        omissions = _top_omissions(data, field, total_n, min(5, total_n))
+        omit_text = " ".join(f"{n:02d}<span class=\"meta\">({o})</span>" for n, o in omissions)
+        cards.append(f"""
+<div class="summary-card">
+  <div class="title">{label}综合推荐</div>
+  <div>{_fmt_nums(rec)}</div>
+  <div class="line">和值 {sum(rec)}  |  奇偶 {sum(1 for n in rec if n % 2 == 1)}:{pick - sum(1 for n in rec if n % 2 == 1)}</div>
+</div>
+""")
+        if best:
+            cards.append(f"""
+<div class="summary-card">
+  <div class="title">{label}近10期最相似</div>
+  <div>{best['period']}期，重号 {best['hit_count']} 个</div>
+  <div class="line">重号: {_fmt_nums(best['hits'])}</div>
+</div>
+""")
+        cards.append(f"""
+<div class="summary-card">
+  <div class="title">{label}当前遗漏高位</div>
+  <div>{omit_text}</div>
+  <div class="line">括号内为当前遗漏期数</div>
+</div>
+""")
+        rec_eval = eval_by_field.get(field)
+        if rec_eval:
+            cards.append(f"""
+<div class="summary-card">
+  <div class="title">{label}上期综合复盘</div>
+  <div>中 {len(rec_eval['hits'])} 个: {_fmt_nums(rec_eval['hits'])}</div>
+  <div class="line">未覆盖: {_fmt_nums(rec_eval['uncovered'])}</div>
+</div>
+""")
+
+    return f"""
+<h2>关键结论</h2>
+<div class="key-summary">
+{''.join(cards)}
+</div>
+"""
 
 
 def _remaining_section(predictions, counter, total_n):
@@ -484,6 +574,7 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 <p class="meta">数据: {len(data)} 期历史  |  最新开奖: {latest_draw['period']}期</p>
 """
 
+    html += _key_summary_section(data, areas, evaluation)
     html += _evaluation_section_html(evaluation)
 
     for label, field, predictions, counter, cfg in areas:
@@ -581,6 +672,8 @@ def _build_html(data, latest_draw, predictions, counter, cfg, lotid, next_period
 <h1>🎯 {lot_name} {next_period}期{area_str} 预测报告</h1>
 <p class="meta">生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  seed: {seed}  |  总采样: {sum(counter.values())} 次</p>
 <p class="meta">数据: {len(data)} 期历史  |  选号: {pick}/{total_n}  |  最新开奖: {latest_draw['period']}期</p>
+
+{_key_summary_section(data, [(label or "号码", field, predictions, counter, cfg)], None)}
 
 <h2>📊 最近10期走势</h2>
 <div class="matrix">{_history_matrix(data, field, total_n, 10)}</div>

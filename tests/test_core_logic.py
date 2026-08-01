@@ -14,6 +14,7 @@ import analyzer
 import prediction_store
 import report
 import review_report
+import site_index
 
 
 class CoreLogicTests(unittest.TestCase):
@@ -131,6 +132,41 @@ class CoreLogicTests(unittest.TestCase):
         self.assertIn("01", html)
         self.assertIn("05", html)
 
+    def test_key_summary_section_shows_first_screen_decision_points(self):
+        data = [
+            {"period": "004", "numbers": ["01", "03", "05"]},
+            {"period": "003", "numbers": ["02", "04", "06"]},
+            {"period": "002", "numbers": ["01", "02", "06"]},
+        ]
+        predictions = {
+            "hot": ["01", "02", "03"],
+            "cold": ["04", "05", "06"],
+            "kill_a": ["07", "08", "09"],
+            "kill_b": ["01", "04", "07"],
+            "kill_c": ["02", "05", "08"],
+        }
+        counter = Counter({1: 5, 2: 4, 3: 3})
+        areas = [("号码", "numbers", predictions, counter, {"total": 9, "pick": 3})]
+        evaluation = {
+            "areas": [{
+                "field": "numbers",
+                "comparisons": [{
+                    "name": "recommendation",
+                    "hits": [1, 3],
+                    "uncovered": [5],
+                }],
+            }]
+        }
+
+        html = report._key_summary_section(data, areas, evaluation)
+
+        self.assertIn("关键结论", html)
+        self.assertIn("号码综合推荐", html)
+        self.assertIn("号码近10期最相似", html)
+        self.assertIn("号码当前遗漏高位", html)
+        self.assertIn("号码上期综合复盘", html)
+        self.assertIn("中 2 个", html)
+
     def test_review_report_compares_saved_predictions_to_random_baseline(self):
         store = {
             "dlt": {
@@ -172,6 +208,34 @@ class CoreLogicTests(unittest.TestCase):
         self.assertIn("大乐透 历史复盘", html)
         self.assertIn("随机基线", html)
         self.assertIn("长期统计", html)
+
+    def test_site_index_generates_grouped_mobile_home_and_latest_aliases(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            files = {
+                "dlt_2026001.html": "old",
+                "dlt_2026003.html": "new",
+                "ssq_2026002.html": "ssq",
+                "review_dlt.html": "review",
+            }
+            for name, content in files.items():
+                with open(os.path.join(tmpdir, name), "w") as f:
+                    f.write(content)
+
+            index_path = site_index.generate_site(tmpdir, updated_at="2026-08-01 22:10")
+
+            with open(index_path) as f:
+                index_html = f.read()
+            with open(os.path.join(tmpdir, "latest_dlt.html")) as f:
+                latest_dlt = f.read()
+
+        self.assertEqual(latest_dlt, "new")
+        self.assertIn("最新预测报告", index_html)
+        self.assertIn("历史复盘", index_html)
+        self.assertIn("最近预测归档", index_html)
+        self.assertIn("latest_dlt.html", index_html)
+        self.assertIn("latest_ssq.html", index_html)
+        self.assertIn("review_dlt.html", index_html)
+        self.assertIn("2026-08-01 22:10", index_html)
 
 
 if __name__ == "__main__":
