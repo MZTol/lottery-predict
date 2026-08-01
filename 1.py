@@ -12,6 +12,7 @@ from analyzer import (
 from utils import ensure_fresh, generate_filtered, get_latest_draw
 from report import generate_combined_report
 from expert import get_expert_picks
+from prediction_store import evaluate_prediction, save_prediction
 
 
 def _weight_variants(base_wt, delta=0.12):
@@ -53,6 +54,15 @@ if __name__ == "__main__":
 
     print(f"最新: {latest_entry['period']}期 -> {latest_numbers}")
     print(f"预测: {next_period}期")
+
+    evaluation = evaluate_prediction(LOTID, latest_entry)
+    if evaluation:
+        for area in evaluation["areas"]:
+            for comp in area["comparisons"]:
+                if comp["name"] == "recommendation":
+                    print(f"  复盘 {area['label']} 综合推荐: 中 {len(comp['hits'])} 个")
+    else:
+        print("  复盘: 未找到本期历史预测记录")
 
     best_avg, best_wt, best_win = tune_weights(data, tune_cfg)
     print(f"  回测调优: {best_avg:.2f}/期 (窗口{best_win})")
@@ -98,5 +108,11 @@ if __name__ == "__main__":
     if experts:
         expert_data.append(("号码", experts, all_picks))
 
-    fpath = generate_combined_report(data, latest_entry, areas, LOTID, next_period, next_seed, expert_data=expert_data or None)
+    fpath = generate_combined_report(
+        data, latest_entry, areas, LOTID, next_period, next_seed,
+        expert_data=expert_data or None,
+        evaluation=evaluation,
+    )
+    save_prediction(LOTID, next_period, next_seed, areas)
+    print(f"  已保存 {next_period}期预测记录")
     print(f"  总采样: {len(all_numbers)} 次")

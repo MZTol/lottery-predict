@@ -23,9 +23,11 @@ def _style():
     return """
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body { font-family: -apple-system, 'Segoe UI', sans-serif; max-width: 960px; margin: 0 auto; padding: 20px; background: #f5f5f5; }
-        h1 { color: #1a1a2e; border-bottom: 3px solid #e94560; padding-bottom: 8px; }
-        h2 { color: #16213e; margin-top: 28px; }
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 960px; margin: 0 auto; padding: 20px; background: #f5f5f5; color: #222; line-height: 1.45; }
+        h1 { color: #1a1a2e; border-bottom: 3px solid #e94560; padding-bottom: 8px; font-size: 26px; line-height: 1.25; }
+        h2 { color: #16213e; margin-top: 28px; font-size: 21px; line-height: 1.3; }
+        h3 { color: #24324a; margin: 18px 0 8px; font-size: 16px; line-height: 1.35; }
         .meta { color: #666; font-size: 14px; margin: 4px 0; }
         table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px; }
         th, td { border: 1px solid #ddd; padding: 4px 6px; text-align: center; }
@@ -52,14 +54,17 @@ def _style():
         .stat-card { background: #fff; border-radius: 6px; padding: 8px; text-align: center; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
         .stat-card .val { font-size: 22px; font-weight: bold; }
         .stat-card .lbl { font-size: 12px; color: #666; }
-        .matrix { font-size: 12px; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+        .matrix { font-size: 12px; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
         .matrix td { padding: 2px 4px; min-width: 22px; }
         .matrix .period-col { text-align: left; font-weight: bold; padding-right: 8px; min-width: 70px; }
-        .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100%; }
+        .wide-table { min-width: 820px; }
+        .stack-table td .meta { display: inline; }
         @media (max-width: 768px) {
-            body { padding: 10px; }
+            body { padding: 10px; max-width: 100%; }
             h1 { font-size: 20px; }
             h2 { font-size: 16px; margin-top: 20px; }
+            h3 { font-size: 15px; }
             table { font-size: 11px; }
             th, td { padding: 3px 4px; }
             .num { font-size: 13px; padding: 1px 3px; }
@@ -70,12 +75,36 @@ def _style():
             .grid-cell { font-size: 10px; padding: 3px 0; }
             .grid { grid-template-columns: repeat(auto-fill, minmax(28px, 1fr)); gap: 1px; }
         }
+        @media (max-width: 640px) {
+            .mobile-cards { overflow: visible; }
+            .mobile-cards .wide-table { min-width: 0; }
+            .mobile-cards table,
+            .mobile-cards thead,
+            .mobile-cards tbody,
+            .mobile-cards tr,
+            .mobile-cards th,
+            .mobile-cards td { display: block; width: 100%; }
+            .mobile-cards thead { display: none; }
+            .mobile-cards table { margin: 8px 0; border-collapse: separate; border-spacing: 0; }
+            .mobile-cards tr { background: #fff; border: 1px solid #ddd; border-radius: 8px; margin: 8px 0; padding: 6px 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+            .mobile-cards tr:nth-child(even) { background: #fff; }
+            .mobile-cards td { border: 0; border-bottom: 1px solid #eee; display: grid; grid-template-columns: minmax(82px, 32%) minmax(0, 1fr); gap: 8px; align-items: start; text-align: left; padding: 7px 0; }
+            .mobile-cards td:last-child { border-bottom: 0; }
+            .mobile-cards td::before { content: attr(data-label); color: #666; font-weight: 600; font-size: 12px; line-height: 1.45; }
+            .mobile-cards td[data-label="期号"],
+            .mobile-cards td[data-label="类型"] { font-size: 14px; font-weight: 700; color: #16213e; }
+            .mobile-cards td[data-label="期号"]::before,
+            .mobile-cards td[data-label="类型"]::before { color: #16213e; }
+            .mobile-cards .num { margin-bottom: 3px; }
+        }
         @media (max-width: 480px) {
             .summary-grid { grid-template-columns: 1fr; }
             .meta { font-size: 12px; }
             .grid { grid-template-columns: repeat(auto-fill, minmax(22px, 1fr)); }
             .grid-cell { font-size: 9px; padding: 2px 0; }
             .bar { height: 14px; }
+            body { padding: 8px; }
+            .group-box { border-radius: 6px; margin: 8px 0; }
         }
     </style>
     """
@@ -162,6 +191,70 @@ def _predictions_table(predictions, counters, actual_set):
             f'</div>'
         )
     return "\n".join(blocks)
+
+
+def _comparison_cell(predicted, actual_set):
+    hits = sorted(set(int(n) for n in predicted) & actual_set)
+    return f"{len(hits)} / {_fmt_nums(hits)}"
+
+
+def _td(label, value, style=""):
+    style_attr = f' style="{style}"' if style else ""
+    return f'<td data-label="{label}"{style_attr}>{value}</td>'
+
+
+def _prediction_history_comparison(data, field, predictions, counter, pick, periods=10):
+    groups = [
+        ("hot", "热门", predictions["hot"]),
+        ("cold", "冷门", predictions["cold"]),
+        ("kill_a", "杀号A", predictions["kill_a"]),
+        ("kill_b", "杀号B", predictions["kill_b"]),
+        ("kill_c", "杀号C", predictions["kill_c"]),
+    ]
+    rec = _recommendation(predictions, counter, pick)
+    groups.append(("recommendation", "综合", rec))
+
+    group_labels = [f"{label}重号" for _, label, _ in groups]
+    header = "".join(f"<th>{label}</th>" for label in group_labels)
+    rows = []
+    for entry in data[:periods]:
+        actual = sorted(int(n) for n in entry[field])
+        actual_set = set(actual)
+        rec_set = set(rec)
+        group_cells = "".join(
+            _td(group_label, _comparison_cell(nums, actual_set))
+            for group_label, (_, _, nums) in zip(group_labels, groups)
+        )
+        rec_hits = sorted(rec_set & actual_set)
+        actual_uncovered = sorted(actual_set - rec_set)
+        rec_misses = sorted(rec_set - actual_set)
+        rows.append(
+            f"<tr>"
+            f"{_td('期号', entry['period'], 'font-weight:bold')}"
+            f"{_td('开奖号码', _fmt_nums(actual))}"
+            f"{group_cells}"
+            f"{_td('综合命中', _fmt_nums(rec_hits))}"
+            f"{_td('开奖未覆盖', _fmt_nums(actual_uncovered))}"
+            f"{_td('综合未出现', _fmt_nums(rec_misses))}"
+            f"</tr>"
+        )
+
+    return f"""
+<div class="table-wrap mobile-cards">
+<table class="wide-table stack-table">
+    <thead>
+        <tr>
+            <th>期号</th><th>开奖号码</th>{header}
+            <th>综合命中</th><th>开奖未覆盖</th><th>综合未出现</th>
+        </tr>
+    </thead>
+    <tbody>
+        {''.join(rows)}
+    </tbody>
+</table>
+</div>
+<p class="meta">该表使用本次生成的预测号码，与最近 {min(periods, len(data))} 期已开奖数据逐期对比；用于观察重号和差异，不代表预测验证。</p>
+"""
 
 
 def _recommendation(all_preds, counter, pick):
@@ -300,6 +393,65 @@ def _expert_section_html(experts, all_picks, labels):
     """
 
 
+GROUP_LABELS = {
+    "hot": "热门",
+    "cold": "冷门",
+    "kill_a": "杀号A(随机)",
+    "kill_b": "杀号B(高频)",
+    "kill_c": "杀号C(等距)",
+    "recommendation": "综合推荐",
+}
+
+
+def _fmt_nums(nums):
+    if not nums:
+        return '<span class="meta">无</span>'
+    return " ".join(f'<span class="num">{int(n):02d}</span>' for n in nums)
+
+
+def _evaluation_section_html(evaluation):
+    if not evaluation:
+        return """
+<hr>
+<h2>🧾 上期预测复盘</h2>
+<p class="meta">没有找到本期对应的历史预测记录；从本次运行开始会保存预测，下一期开奖后可自动复盘。</p>
+"""
+
+    html = f"""
+<hr>
+<h2>🧾 上期预测复盘</h2>
+<p class="meta">复盘期号: {evaluation['period']}期  |  预测生成: {evaluation.get('generated_at') or '未知'}  |  seed: {evaluation.get('seed')}</p>
+"""
+    for area in evaluation.get("areas", []):
+        actual = area["actual"]
+        rows = []
+        for comp in area["comparisons"]:
+            rows.append(
+                f"<tr>"
+                f"{_td('类型', GROUP_LABELS.get(comp['name'], comp['name']), 'font-weight:bold')}"
+                f"{_td('预测号码', _fmt_nums(comp['predicted']))}"
+                f"{_td('中几个', len(comp['hits']))}"
+                f"{_td('命中', _fmt_nums(comp['hits']))}"
+                f"{_td('预测未中', _fmt_nums(comp['misses']))}"
+                f"{_td('开奖未覆盖', _fmt_nums(comp['uncovered']))}"
+                f"</tr>"
+            )
+        html += f"""
+<h3>{area['label']} 实际开奖: {_fmt_nums(actual)}</h3>
+<div class="table-wrap mobile-cards">
+<table class="wide-table stack-table">
+    <thead>
+        <tr><th>类型</th><th>预测号码</th><th>中几个</th><th>命中</th><th>预测未中</th><th>开奖未覆盖</th></tr>
+    </thead>
+    <tbody>
+        {''.join(rows)}
+    </tbody>
+</table>
+</div>
+"""
+    return html
+
+
 def generate_report(data, latest_draw, predictions, counter, cfg, lotid, next_period, seed, field="numbers", label="", overlay_hits=None):
     os.makedirs(REPORTS_DIR, exist_ok=True)
     total_n = cfg["total"]
@@ -317,7 +469,7 @@ def generate_report(data, latest_draw, predictions, counter, cfg, lotid, next_pe
     return fpath
 
 
-def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed, expert_data=None):
+def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed, expert_data=None, evaluation=None):
     """areas: [(label, field, predictions, counter, cfg), ...]
        expert_data: [(label, experts, all_picks), ...] or None
     """
@@ -332,6 +484,8 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 <p class="meta">数据: {len(data)} 期历史  |  最新开奖: {latest_draw['period']}期</p>
 """
 
+    html += _evaluation_section_html(evaluation)
+
     for label, field, predictions, counter, cfg in areas:
         total_n = cfg["total"]
         pick = cfg["pick"]
@@ -344,6 +498,9 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 
 <h3>📊 最近10期走势</h3>
 <div class="matrix">{_history_matrix(data, field, total_n, 10)}</div>
+
+<h3>🔎 本期预测 vs 最近10期开奖</h3>
+{_prediction_history_comparison(data, field, predictions, counter, pick, 10)}
 
 <div style="display:flex;gap:16px;flex-wrap:wrap">
 <div style="flex:1;min-width:280px">
@@ -427,6 +584,9 @@ def _build_html(data, latest_draw, predictions, counter, cfg, lotid, next_period
 
 <h2>📊 最近10期走势</h2>
 <div class="matrix">{_history_matrix(data, field, total_n, 10)}</div>
+
+<h2>🔎 本期预测 vs 最近10期开奖</h2>
+{_prediction_history_comparison(data, field, predictions, counter, pick, 10)}
 
 <h2>🔴 遗漏 Top 10（最冷号）</h2>
 {_omission_bar(data, field, total_n)}

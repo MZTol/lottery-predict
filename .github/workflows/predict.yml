@@ -2,10 +2,17 @@ name: 彩票预测
 on:
   workflow_dispatch:
   schedule:
+    # 北京时间 18:00：开奖前生成预测
     - cron: '0 10 * * *'
+    # 北京时间 22:10：开奖后刷新数据并复盘上一期预测
+    - cron: '10 14 * * *'
 
 permissions:
   contents: write
+
+concurrency:
+  group: lottery-predict
+  cancel-in-progress: false
 
 jobs:
   predict:
@@ -17,24 +24,121 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: 恢复预测历史
+        run: |
+          git fetch origin gh-pages --depth=1 || true
+          git show origin/gh-pages:predictions_history.json > predictions_history.json 2>/dev/null || true
+          if [ -f predictions_history.json ]; then
+            echo "已恢复 predictions_history.json"
+          else
+            echo "未找到历史预测文件，将从本次运行开始记录"
+          fi
+
       - name: 运行预测
         run: |
           python 1.py 10
           python 2.py
           python 3.py
+          python review_report.py all
 
-      - name: 复制报告
+      - name: 生成发布文件
         run: |
           mkdir -p /tmp/reports
           cp reports/*.html /tmp/reports/ 2>/dev/null || true
-          echo '<h1>🎯 彩票预测报告</h1>' > /tmp/reports/index.html
-          echo "<p>更新时间: $(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M')</p>" >> /tmp/reports/index.html
+          cp predictions_history.json /tmp/reports/ 2>/dev/null || true
+
+          report_count=$(find /tmp/reports -maxdepth 1 -name '*.html' ! -name 'index.html' | wc -l)
+          if [ "$report_count" -eq 0 ]; then
+            echo "未生成任何 HTML 报告"
+            exit 1
+          fi
+
+          updated_at="$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M')"
+          cat > /tmp/reports/index.html <<HTML
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>彩票预测报告</title>
+            <style>
+              * { box-sizing: border-box; }
+              body {
+                margin: 0;
+                padding: 14px;
+                background: #f5f5f5;
+                color: #222;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                line-height: 1.45;
+              }
+              main {
+                max-width: 760px;
+                margin: 0 auto;
+              }
+              h1 {
+                margin: 4px 0 6px;
+                color: #1a1a2e;
+                font-size: 24px;
+                line-height: 1.25;
+              }
+              .meta {
+                margin: 0 0 14px;
+                color: #666;
+                font-size: 13px;
+              }
+              .list {
+                display: grid;
+                gap: 10px;
+              }
+              .card {
+                display: block;
+                padding: 13px 14px;
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                background: #fff;
+                color: inherit;
+                text-decoration: none;
+                box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+              }
+              .name {
+                display: block;
+                color: #16213e;
+                font-size: 17px;
+                font-weight: 700;
+                overflow-wrap: anywhere;
+              }
+              .hint {
+                display: block;
+                margin-top: 4px;
+                color: #666;
+                font-size: 12px;
+              }
+              @media (max-width: 480px) {
+                body { padding: 10px; }
+                h1 { font-size: 21px; }
+                .card { padding: 12px; }
+              }
+            </style>
+          </head>
+          <body>
+            <main>
+              <h1>彩票预测报告</h1>
+              <p class="meta">更新时间: ${updated_at}</p>
+              <div class="list">
+          HTML
           for f in /tmp/reports/*.html; do
             name=$(basename "$f")
             if [ "$name" != "index.html" ]; then
-              echo "<a href=\"$name\">📄 $name</a><br>" >> /tmp/reports/index.html
+              title="${name%.html}"
+              echo "                <a class=\"card\" href=\"$name\"><span class=\"name\">$title</span><span class=\"hint\">打开报告</span></a>" >> /tmp/reports/index.html
             fi
           done
+          cat >> /tmp/reports/index.html <<HTML
+              </div>
+            </main>
+          </body>
+          </html>
+          HTML
 
       - name: 推送到 gh-pages
         env:
@@ -52,6 +156,7 @@ jobs:
 
           # 复制新报告
           cp /tmp/reports/*.html .
+          cp /tmp/reports/predictions_history.json . 2>/dev/null || true
 
           git add .
           if git diff --cached --quiet; then
