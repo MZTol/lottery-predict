@@ -2,6 +2,7 @@ import json
 import os
 from collections import Counter
 from datetime import datetime
+from json import JSONDecodeError
 
 
 DIR = os.path.dirname(__file__)
@@ -9,9 +10,13 @@ PREDICTIONS_FILE = os.path.join(DIR, "predictions_history.json")
 
 
 def _load_store(filename=PREDICTIONS_FILE):
-    if os.path.exists(filename):
-        with open(filename) as f:
-            return json.load(f)
+    if os.path.exists(filename) and os.path.getsize(filename) > 0:
+        try:
+            with open(filename) as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except (JSONDecodeError, OSError):
+            return {}
     return {}
 
 

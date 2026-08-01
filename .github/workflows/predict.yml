@@ -28,9 +28,10 @@ jobs:
         run: |
           git fetch origin gh-pages --depth=1 || true
           git show origin/gh-pages:predictions_history.json > predictions_history.json 2>/dev/null || true
-          if [ -f predictions_history.json ]; then
+          if [ -s predictions_history.json ] && python -m json.tool predictions_history.json >/dev/null 2>&1; then
             echo "已恢复 predictions_history.json"
           else
+            rm -f predictions_history.json
             echo "未找到历史预测文件，将从本次运行开始记录"
           fi
 

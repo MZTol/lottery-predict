@@ -105,6 +105,21 @@ class CoreLogicTests(unittest.TestCase):
         rec = next(c for c in evaluation["areas"][0]["comparisons"] if c["name"] == "recommendation")
         self.assertEqual(rec["predicted"], [1, 2, 3, 4, 5])
 
+    def test_prediction_store_treats_empty_or_invalid_json_as_empty_history(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filename = os.path.join(tmpdir, "predictions_history.json")
+            with open(filename, "w") as f:
+                f.write("")
+            self.assertEqual(prediction_store._load_store(filename), {})
+
+            with open(filename, "w") as f:
+                f.write("not-json")
+            self.assertEqual(prediction_store._load_store(filename), {})
+
+            with open(filename, "w") as f:
+                f.write("[]")
+            self.assertEqual(prediction_store._load_store(filename), {})
+
     def test_prediction_history_comparison_lists_recent_draw_differences(self):
         data = [
             {"period": "004", "numbers": ["01", "03", "05"]},
