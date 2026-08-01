@@ -46,6 +46,7 @@ def _style():
         .tag-c { background: #cce5ff; color: #004085; }
         .group-box { background: #fff; border-radius: 8px; padding: 12px 16px; margin: 12px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
         .num { font-size: 15px; font-weight: bold; font-family: 'SF Mono', 'Courier New', monospace; padding: 2px 5px; margin: 1px; display: inline-block; }
+        .nums { display: inline-flex; flex-wrap: wrap; gap: 2px 4px; align-items: center; }
         .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); gap: 2px; margin: 8px 0; }
         .grid-cell { text-align: center; font-size: 12px; padding: 4px 0; border-radius: 3px; background: #fff; border: 1px solid #eee; }
         .grid-cell.on { background: #e94560; color: #fff; font-weight: bold; }
@@ -58,6 +59,20 @@ def _style():
         .summary-card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 11px 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
         .summary-card .title { color: #16213e; font-size: 14px; font-weight: 700; margin-bottom: 6px; }
         .summary-card .line { color: #555; font-size: 12px; margin-top: 5px; }
+        .compare-list { display: grid; gap: 8px; margin: 8px 0 10px; }
+        .compare-card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 10px 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+        .compare-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 6px; margin-bottom: 7px; }
+        .compare-period { color: #16213e; font-size: 16px; font-weight: 800; }
+        .compare-draw { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 8px; align-items: start; margin: 6px 0; }
+        .compare-label { color: #666; font-size: 12px; font-weight: 700; }
+        .compare-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+        .compare-item { border: 1px solid #eee; border-radius: 6px; background: #fafafa; padding: 6px; min-width: 0; }
+        .compare-item-top { display: flex; justify-content: space-between; gap: 4px; align-items: center; margin-bottom: 4px; }
+        .compare-name { color: #555; font-size: 12px; font-weight: 700; }
+        .compare-count { color: #16213e; font-size: 13px; font-weight: 800; }
+        .compare-diff { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; border-top: 1px solid #eee; padding-top: 7px; }
+        .compare-diff-item { min-width: 0; }
+        .compare-diff-title { color: #666; font-size: 12px; font-weight: 700; margin-bottom: 3px; }
         .matrix { font-size: 12px; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
         .matrix td { padding: 2px 4px; min-width: 22px; }
         .matrix .period-col { text-align: left; font-weight: bold; padding-right: 8px; min-width: 70px; }
@@ -102,6 +117,14 @@ def _style():
             .mobile-cards td[data-label="期号"]::before,
             .mobile-cards td[data-label="类型"]::before { color: #16213e; }
             .mobile-cards .num { margin-bottom: 3px; }
+            .compare-card { padding: 8px 9px; border-radius: 7px; }
+            .compare-head { padding-bottom: 5px; margin-bottom: 6px; }
+            .compare-period { font-size: 15px; }
+            .compare-draw { grid-template-columns: 38px minmax(0, 1fr); gap: 6px; }
+            .compare-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+            .compare-item { padding: 5px; }
+            .compare-diff { grid-template-columns: 1fr; gap: 5px; }
+            .nums { gap: 1px 3px; }
         }
         @media (max-width: 480px) {
             .summary-grid { grid-template-columns: 1fr; }
@@ -204,6 +227,16 @@ def _comparison_cell(predicted, actual_set):
     return f"{len(hits)} / {_fmt_nums(hits)}"
 
 
+def _compare_item(label, nums, actual_set):
+    hits = sorted(set(int(n) for n in nums) & actual_set)
+    return f"""
+<div class="compare-item">
+  <div class="compare-item-top"><span class="compare-name">{label}重号</span><span class="compare-count">{len(hits)}</span></div>
+  <div>{_fmt_nums(hits)}</div>
+</div>
+"""
+
+
 def _td(label, value, style=""):
     style_attr = f' style="{style}"' if style else ""
     return f'<td data-label="{label}"{style_attr}>{value}</td>'
@@ -220,44 +253,34 @@ def _prediction_history_comparison(data, field, predictions, counter, pick, peri
     rec = _recommendation(predictions, counter, pick)
     groups.append(("recommendation", "综合", rec))
 
-    group_labels = [f"{label}重号" for _, label, _ in groups]
-    header = "".join(f"<th>{label}</th>" for label in group_labels)
-    rows = []
+    cards = []
     for entry in data[:periods]:
         actual = sorted(int(n) for n in entry[field])
         actual_set = set(actual)
         rec_set = set(rec)
-        group_cells = "".join(
-            _td(group_label, _comparison_cell(nums, actual_set))
-            for group_label, (_, _, nums) in zip(group_labels, groups)
-        )
+        group_cells = "".join(_compare_item(label, nums, actual_set) for _, label, nums in groups)
         rec_hits = sorted(rec_set & actual_set)
         actual_uncovered = sorted(actual_set - rec_set)
         rec_misses = sorted(rec_set - actual_set)
-        rows.append(
-            f"<tr>"
-            f"{_td('期号', entry['period'], 'font-weight:bold')}"
-            f"{_td('开奖号码', _fmt_nums(actual))}"
-            f"{group_cells}"
-            f"{_td('综合命中', _fmt_nums(rec_hits))}"
-            f"{_td('开奖未覆盖', _fmt_nums(actual_uncovered))}"
-            f"{_td('综合未出现', _fmt_nums(rec_misses))}"
-            f"</tr>"
-        )
+        cards.append(f"""
+<div class="compare-card">
+  <div class="compare-head">
+    <span class="compare-period">{entry['period']}期</span>
+    <span class="meta">开奖号 {len(actual)} 个</span>
+  </div>
+  <div class="compare-draw"><span class="compare-label">开奖</span><span>{_fmt_nums(actual)}</span></div>
+  <div class="compare-groups">{group_cells}</div>
+  <div class="compare-diff">
+    <div class="compare-diff-item"><div class="compare-diff-title">综合命中</div>{_fmt_nums(rec_hits)}</div>
+    <div class="compare-diff-item"><div class="compare-diff-title">开奖未覆盖</div>{_fmt_nums(actual_uncovered)}</div>
+    <div class="compare-diff-item"><div class="compare-diff-title">综合未出现</div>{_fmt_nums(rec_misses)}</div>
+  </div>
+</div>
+""")
 
     return f"""
-<div class="table-wrap mobile-cards">
-<table class="wide-table stack-table">
-    <thead>
-        <tr>
-            <th>期号</th><th>开奖号码</th>{header}
-            <th>综合命中</th><th>开奖未覆盖</th><th>综合未出现</th>
-        </tr>
-    </thead>
-    <tbody>
-        {''.join(rows)}
-    </tbody>
-</table>
+<div class="compare-list">
+{''.join(cards)}
 </div>
 <p class="meta">该表使用本次生成的预测号码，与最近 {min(periods, len(data))} 期已开奖数据逐期对比；用于观察重号和差异，不代表预测验证。</p>
 """
@@ -496,7 +519,7 @@ GROUP_LABELS = {
 def _fmt_nums(nums):
     if not nums:
         return '<span class="meta">无</span>'
-    return " ".join(f'<span class="num">{int(n):02d}</span>' for n in nums)
+    return '<span class="nums">' + "".join(f'<span class="num">{int(n):02d}</span>' for n in nums) + '</span>'
 
 
 def _evaluation_section_html(evaluation):
