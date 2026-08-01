@@ -135,17 +135,69 @@ class CoreLogicTests(unittest.TestCase):
         counter = Counter({1: 5, 2: 4, 3: 3})
 
         html = report._prediction_history_comparison(
-            data, "numbers", predictions, counter, pick=3, periods=2
+            data, "numbers", predictions, counter, pick=3, periods=2, total_n=9
         )
 
+        self.assertIn("trend-wrap", html)
+        self.assertIn("trend-table", html)
+        self.assertIn("期号/号码", html)
         self.assertIn("004", html)
         self.assertIn("003", html)
-        self.assertIn("热门重号", html)
-        self.assertIn("综合命中", html)
-        self.assertIn("开奖未覆盖", html)
-        self.assertIn("综合未出现", html)
+        self.assertLess(html.index("003"), html.index("004"))
+        self.assertIn("本期综合推荐", html)
+        self.assertIn("综合推荐", html)
+        self.assertIn("手动选择", html)
+        self.assertIn("自选号码", html)
+        self.assertIn('data-manual-key="numbers-9"', html)
+        self.assertIn('data-manual-cell data-number="04"', html)
+        self.assertIn('role="button"', html)
+        self.assertNotIn("本期最终分层", html)
+        self.assertIn("综合中", html)
+        self.assertIn("trend-draw", html)
+        self.assertIn("trend-rec", html)
         self.assertIn("01", html)
-        self.assertIn("05", html)
+        self.assertIn("09", html)
+        self.assertIn('<td class="trend-cell trend-empty"><span>04</span></td>', html)
+
+    def test_recommendation_uses_sampling_counter_not_group_vote(self):
+        predictions = {
+            "hot": ["01", "02", "03"],
+            "cold": ["04", "05", "06"],
+            "kill_a": ["07", "08", "09"],
+            "kill_b": ["07", "08", "09"],
+            "kill_c": ["07", "08", "09"],
+        }
+        counter = Counter({1: 50, 2: 40, 3: 30, 7: 1, 8: 1, 9: 1})
+
+        self.assertEqual(report._recommendation(predictions, counter, 3), [1, 2, 3])
+
+    def test_report_style_contains_manual_selection_script(self):
+        html = report._style()
+
+        self.assertIn("localStorage", html)
+        self.assertIn("manual-on", html)
+        self.assertIn("data-manual-cell", html)
+
+    def test_saved_recommendation_uses_sampling_counter(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filename = os.path.join(tmpdir, "predictions_history.json")
+            areas = [(
+                "号码",
+                "numbers",
+                {
+                    "hot": ["01", "02", "03"],
+                    "cold": ["04", "05", "06"],
+                    "kill_a": ["07", "08", "09"],
+                    "kill_b": ["07", "08", "09"],
+                    "kill_c": ["07", "08", "09"],
+                },
+                Counter({1: 50, 2: 40, 3: 30, 7: 1, 8: 1, 9: 1}),
+                {"total": 9, "pick": 3},
+            )]
+
+            saved = prediction_store.save_prediction("kl8", 456, 456, areas, filename=filename)
+
+        self.assertEqual(saved["areas"]["numbers"]["recommendation"], ["01", "02", "03"])
 
     def test_key_summary_section_shows_first_screen_decision_points(self):
         data = [
@@ -176,7 +228,10 @@ class CoreLogicTests(unittest.TestCase):
         html = report._key_summary_section(data, areas, evaluation)
 
         self.assertIn("关键结论", html)
-        self.assertIn("号码综合推荐", html)
+        self.assertIn("号码最终主推", html)
+        self.assertIn("核心号", html)
+        self.assertIn("备选号", html)
+        self.assertIn("观察号", html)
         self.assertIn("号码近10期最相似", html)
         self.assertIn("号码当前遗漏高位", html)
         self.assertIn("号码上期综合复盘", html)

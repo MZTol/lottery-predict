@@ -57,22 +57,49 @@ def _style():
         .stat-card .lbl { font-size: 12px; color: #666; }
         .key-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 14px 0 18px; }
         .summary-card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 11px 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .summary-card.primary { border-color: #16213e; grid-column: 1 / -1; }
         .summary-card .title { color: #16213e; font-size: 14px; font-weight: 700; margin-bottom: 6px; }
         .summary-card .line { color: #555; font-size: 12px; margin-top: 5px; }
-        .compare-list { display: grid; gap: 8px; margin: 8px 0 10px; }
-        .compare-card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 10px 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
-        .compare-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 6px; margin-bottom: 7px; }
-        .compare-period { color: #16213e; font-size: 16px; font-weight: 800; }
-        .compare-draw { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 8px; align-items: start; margin: 6px 0; }
-        .compare-label { color: #666; font-size: 12px; font-weight: 700; }
-        .compare-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
-        .compare-item { border: 1px solid #eee; border-radius: 6px; background: #fafafa; padding: 6px; min-width: 0; }
-        .compare-item-top { display: flex; justify-content: space-between; gap: 4px; align-items: center; margin-bottom: 4px; }
-        .compare-name { color: #555; font-size: 12px; font-weight: 700; }
-        .compare-count { color: #16213e; font-size: 13px; font-weight: 800; }
-        .compare-diff { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; border-top: 1px solid #eee; padding-top: 7px; }
-        .compare-diff-item { min-width: 0; }
-        .compare-diff-title { color: #666; font-size: 12px; font-weight: 700; margin-bottom: 3px; }
+        .tier-box { display: grid; gap: 7px; margin-top: 6px; }
+        .tier-line { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 8px; align-items: start; }
+        .tier-label { color: #16213e; font-size: 12px; font-weight: 800; line-height: 1.5; }
+        .reason-list { display: grid; gap: 5px; margin-top: 8px; }
+        .reason-row { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 7px; align-items: start; color: #555; font-size: 12px; }
+        .reason-row .num { margin: 0; padding: 1px 4px; }
+        .source-grid { display: grid; gap: 7px; }
+        .source-row { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 8px 9px; }
+        .source-head { display: flex; justify-content: space-between; gap: 8px; color: #16213e; font-size: 13px; font-weight: 800; margin-bottom: 4px; }
+        .source-note { color: #666; font-size: 12px; margin-top: 4px; }
+        .trend-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 8px 0 6px; border: 1px solid #d8dde6; border-radius: 8px; background: #fff; }
+        .trend-table { border-collapse: separate; border-spacing: 0; table-layout: fixed; width: max-content; min-width: 100%; margin: 0; font-size: 12px; }
+        .trend-table th, .trend-table td { border: 0; border-right: 1px solid #edf0f5; border-bottom: 1px solid #edf0f5; padding: 0; text-align: center; }
+        .trend-table tr:last-child th, .trend-table tr:last-child td { border-bottom: 0; }
+        .trend-label { position: sticky; left: 0; z-index: 3; width: 82px; min-width: 82px; max-width: 82px; padding: 5px 6px !important; text-align: left !important; background: #fff; color: #16213e; font-weight: 800; line-height: 1.2; }
+        .trend-head { background: #16213e !important; color: #fff !important; }
+        .trend-num { width: 26px; min-width: 26px; max-width: 26px; height: 24px; background: #16213e; color: #fff; font-size: 11px; font-weight: 700; position: static; }
+        .trend-cell { width: 26px; min-width: 26px; max-width: 26px; height: 26px; background: #fff; color: #c3cad5; font-family: 'SF Mono', 'Courier New', monospace; font-size: 11px; font-weight: 800; }
+        .trend-cell span { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; }
+        .trend-empty { background: #fbfcfe; color: #c3cad5; font-weight: 600; }
+        .trend-empty span { border-radius: 0; }
+        .trend-on { color: #fff; }
+        .trend-draw span { background: #e94560; }
+        .trend-hot span { background: #f2a900; color: #1f2933; }
+        .trend-cold span { background: #00a6a6; }
+        .trend-kill-a span { background: #7d8597; }
+        .trend-kill-b span { background: #5a8f29; }
+        .trend-kill-c span { background: #2f80ed; }
+        .trend-rec span { background: #111827; box-shadow: inset 0 0 0 2px #fff; }
+        .trend-manual-cell { cursor: pointer; touch-action: manipulation; }
+        .trend-manual-cell span { border: 1px dashed #d4dae5; }
+        .trend-manual-cell.manual-on { color: #fff; }
+        .trend-manual-cell.manual-on span { background: #7c3aed; border-color: #7c3aed; border-radius: 50%; box-shadow: inset 0 0 0 2px #fff; }
+        .trend-section th { position: sticky; left: 0; z-index: 4; background: #f0f3f8; color: #16213e; text-align: left; padding: 5px 7px; font-size: 12px; border-right: 0; }
+        .trend-legend { display: flex; flex-wrap: wrap; gap: 6px 10px; margin: 7px 0 2px; color: #555; font-size: 12px; }
+        .trend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+        .trend-dot.draw { background: #e94560; }
+        .trend-dot.pred { background: #111827; }
+        .trend-dot.manual { background: #7c3aed; }
+        .trend-dot.kill { background: #7d8597; }
         .matrix { font-size: 12px; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
         .matrix td { padding: 2px 4px; min-width: 22px; }
         .matrix .period-col { text-align: left; font-weight: bold; padding-right: 8px; min-width: 70px; }
@@ -117,14 +144,12 @@ def _style():
             .mobile-cards td[data-label="期号"]::before,
             .mobile-cards td[data-label="类型"]::before { color: #16213e; }
             .mobile-cards .num { margin-bottom: 3px; }
-            .compare-card { padding: 8px 9px; border-radius: 7px; }
-            .compare-head { padding-bottom: 5px; margin-bottom: 6px; }
-            .compare-period { font-size: 15px; }
-            .compare-draw { grid-template-columns: 38px minmax(0, 1fr); gap: 6px; }
-            .compare-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
-            .compare-item { padding: 5px; }
-            .compare-diff { grid-template-columns: 1fr; gap: 5px; }
             .nums { gap: 1px 3px; }
+            .trend-label { width: 68px; min-width: 68px; max-width: 68px; padding: 4px 4px !important; font-size: 10px; }
+            .trend-num, .trend-cell { width: 21px; min-width: 21px; max-width: 21px; }
+            .trend-num { height: 21px; font-size: 9px; }
+            .trend-cell { height: 22px; font-size: 9px; }
+            .trend-cell span { width: 18px; height: 18px; }
         }
         @media (max-width: 480px) {
             .summary-grid { grid-template-columns: 1fr; }
@@ -134,8 +159,68 @@ def _style():
             .bar { height: 14px; }
             body { padding: 8px; }
             .group-box { border-radius: 6px; margin: 8px 0; }
+            .trend-label { width: 64px; min-width: 64px; max-width: 64px; }
+            .trend-num, .trend-cell { width: 20px; min-width: 20px; max-width: 20px; }
+            .trend-cell span { width: 17px; height: 17px; }
         }
     </style>
+    <script>
+    (function() {
+        function readSet(key) {
+            try {
+                return new Set(JSON.parse(localStorage.getItem(key) || "[]"));
+            } catch (e) {
+                return new Set();
+            }
+        }
+
+        function writeSet(key, selected) {
+            try {
+                localStorage.setItem(key, JSON.stringify(Array.from(selected).sort()));
+            } catch (e) {}
+        }
+
+        function setCell(cell, on) {
+            cell.classList.toggle("manual-on", on);
+            cell.setAttribute("aria-pressed", on ? "true" : "false");
+        }
+
+        function updateCount(table, selected) {
+            var target = table.querySelector("[data-manual-count]");
+            if (target) {
+                target.textContent = selected.size + "个";
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", function() {
+            document.querySelectorAll(".trend-table[data-manual-key]").forEach(function(table) {
+                var key = "lottery-manual:" + location.pathname + ":" + table.dataset.manualKey;
+                var selected = readSet(key);
+                table.querySelectorAll("[data-manual-cell]").forEach(function(cell) {
+                    var n = cell.dataset.number;
+                    setCell(cell, selected.has(n));
+                    cell.addEventListener("click", function() {
+                        if (selected.has(n)) {
+                            selected.delete(n);
+                        } else {
+                            selected.add(n);
+                        }
+                        setCell(cell, selected.has(n));
+                        updateCount(table, selected);
+                        writeSet(key, selected);
+                    });
+                    cell.addEventListener("keydown", function(event) {
+                        if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            cell.click();
+                        }
+                    });
+                });
+                updateCount(table, selected);
+            });
+        });
+    })();
+    </script>
     """
 
 
@@ -193,33 +278,56 @@ def _freq_chart(counter, total_n, top_n=15):
     """
 
 
-def _predictions_table(predictions, counters, actual_set):
-    labels = [
-        ("热门", "hot", "tag-hot", predictions["hot"]),
-        ("冷门", "cold", "tag-cold", predictions["cold"]),
-        ("杀号A(随机)", "a", "tag-a", predictions["kill_a"]),
-        ("杀号B(高频)", "b", "tag-b", predictions["kill_b"]),
-        ("杀号C(等距)", "c", "tag-c", predictions["kill_c"]),
-    ]
+def _source_label(name):
+    return {
+        "hot": "热门候选",
+        "cold": "冷门观察",
+        "kill_a": "中间候选A",
+        "kill_b": "中间候选B",
+        "kill_c": "中间候选C",
+    }.get(name, name)
 
-    blocks = []
-    for label, key, tag_cls, nums in labels:
-        nset = {int(n) for n in nums}
-        hits = len(nset & actual_set) if actual_set else 0
-        tags = " ".join(
-            f'<span class="num">{n}</span>'
-            for n in nums
-        )
-        s = sum(int(n) for n in nums)
-        odd = sum(1 for n in nums if int(n) % 2 == 1)
-        blocks.append(
-            f'<div class="group-box">'
-            f'<div><b>{label}</b> <span class="tag {tag_cls}">重号{hits}</span></div>'
-            f'<div style="margin:6px 0">{tags}</div>'
-            f'<div class="meta">和值{s} 奇偶{odd}:{len(nums)-odd} 跨度{max(int(n) for n in nums)-min(int(n) for n in nums)}</div>'
-            f'</div>'
-        )
-    return "\n".join(blocks)
+
+def _source_note(name):
+    return {
+        "hot": "采样频次最高，是最终主推的主要来源。",
+        "cold": "采样中出现过但频次偏低，只作为补充观察。",
+        "kill_a": "从中间区间随机抽取，用于增加覆盖，不参与主推排序。",
+        "kill_b": "中间区间里频次较高的候选，不参与主推排序。",
+        "kill_c": "中间区间按号码轴等距覆盖，不参与主推排序。",
+    }.get(name, "来源参考。")
+
+
+def _number_reasons(n, predictions, counter):
+    tags = []
+    max_cnt = max(counter.values(), default=0)
+    cnt = counter.get(int(n), 0)
+    if max_cnt:
+        tags.append(f"采样{cnt}/{max_cnt}")
+    for key in ("hot", "cold", "kill_a", "kill_b", "kill_c"):
+        if int(n) in {int(x) for x in predictions.get(key, [])}:
+            tags.append(_source_label(key))
+    return " / ".join(tags) if tags else "候选补位"
+
+
+def _source_explanation_section(predictions, counter):
+    rows = []
+    for name in ("hot", "cold", "kill_a", "kill_b", "kill_c"):
+        nums = [int(n) for n in predictions.get(name, [])]
+        if not nums:
+            continue
+        rows.append(f"""
+<div class="source-row">
+  <div class="source-head"><span>{_source_label(name)}</span><span>{len(nums)}个</span></div>
+  <div>{_fmt_nums(nums)}</div>
+  <div class="source-note">{_source_note(name)}</div>
+</div>
+""")
+    return f'<div class="source-grid">{"".join(rows)}</div>'
+
+
+def _predictions_table(predictions, counters, actual_set):
+    return _source_explanation_section(predictions, Counter())
 
 
 def _comparison_cell(predicted, actual_set):
@@ -242,58 +350,124 @@ def _td(label, value, style=""):
     return f'<td data-label="{label}"{style_attr}>{value}</td>'
 
 
-def _prediction_history_comparison(data, field, predictions, counter, pick, periods=10):
-    groups = [
-        ("hot", "热门", predictions["hot"]),
-        ("cold", "冷门", predictions["cold"]),
-        ("kill_a", "杀号A", predictions["kill_a"]),
-        ("kill_b", "杀号B", predictions["kill_b"]),
-        ("kill_c", "杀号C", predictions["kill_c"]),
-    ]
-    rec = _recommendation(predictions, counter, pick)
-    groups.append(("recommendation", "综合", rec))
+def _trend_total_n(data, field, predictions, total_n=None):
+    if total_n:
+        return total_n
+    nums = []
+    for entry in data:
+        nums.extend(int(n) for n in entry.get(field, []))
+    for group_nums in predictions.values():
+        nums.extend(int(n) for n in group_nums)
+    return max(nums) if nums else 0
 
-    cards = []
-    for entry in data[:periods]:
+
+def _trend_cell(n, selected, css_class):
+    if selected:
+        return f'<td class="trend-cell trend-on {css_class}"><span>{n:02d}</span></td>'
+    return f'<td class="trend-cell trend-empty"><span>{n:02d}</span></td>'
+
+
+def _trend_row(label, nums, total_n, css_class, label_note=""):
+    selected = {int(n) for n in nums}
+    note_html = f'<br><span class="meta">{label_note}</span>' if label_note else ""
+    cells = "".join(_trend_cell(n, n in selected, css_class) for n in range(1, total_n + 1))
+    return f'<tr><th class="trend-label">{label}{note_html}</th>{cells}</tr>'
+
+
+def _manual_trend_row(total_n):
+    cells = "".join(
+        f'<td class="trend-cell trend-empty trend-manual-cell" data-manual-cell data-number="{n:02d}" role="button" tabindex="0" aria-pressed="false"><span>{n:02d}</span></td>'
+        for n in range(1, total_n + 1)
+    )
+    return f'<tr><th class="trend-label">自选号码<br><span class="meta" data-manual-count>0个</span></th>{cells}</tr>'
+
+
+def _prediction_history_comparison(data, field, predictions, counter, pick, periods=10, total_n=None):
+    total_n = _trend_total_n(data, field, predictions, total_n)
+    if not total_n:
+        return '<p class="meta">暂无可对比号码。</p>'
+
+    rec = _recommendation(predictions, counter, pick)
+
+    header = "".join(f'<th class="trend-num">{n:02d}</th>' for n in range(1, total_n + 1))
+    draw_rows = []
+    rec_set = set(rec)
+    for entry in reversed(data[:periods]):
         actual = sorted(int(n) for n in entry[field])
-        actual_set = set(actual)
-        rec_set = set(rec)
-        group_cells = "".join(_compare_item(label, nums, actual_set) for _, label, nums in groups)
-        rec_hits = sorted(rec_set & actual_set)
-        actual_uncovered = sorted(actual_set - rec_set)
-        rec_misses = sorted(rec_set - actual_set)
-        cards.append(f"""
-<div class="compare-card">
-  <div class="compare-head">
-    <span class="compare-period">{entry['period']}期</span>
-    <span class="meta">开奖号 {len(actual)} 个</span>
-  </div>
-  <div class="compare-draw"><span class="compare-label">开奖</span><span>{_fmt_nums(actual)}</span></div>
-  <div class="compare-groups">{group_cells}</div>
-  <div class="compare-diff">
-    <div class="compare-diff-item"><div class="compare-diff-title">综合命中</div>{_fmt_nums(rec_hits)}</div>
-    <div class="compare-diff-item"><div class="compare-diff-title">开奖未覆盖</div>{_fmt_nums(actual_uncovered)}</div>
-    <div class="compare-diff-item"><div class="compare-diff-title">综合未出现</div>{_fmt_nums(rec_misses)}</div>
-  </div>
-</div>
-""")
+        hits = len(set(actual) & rec_set)
+        draw_rows.append(_trend_row(str(entry["period"]), actual, total_n, "trend-draw", f"综合中{hits}"))
+
+    prediction_rows = [_trend_row("综合推荐", rec, total_n, "trend-rec")]
 
     return f"""
-<div class="compare-list">
-{''.join(cards)}
+<div class="trend-legend">
+  <span><i class="trend-dot draw"></i>期开奖</span>
+  <span><i class="trend-dot pred"></i>综合推荐</span>
+  <span><i class="trend-dot manual"></i>自选号码</span>
 </div>
-<p class="meta">该表使用本次生成的预测号码，与最近 {min(periods, len(data))} 期已开奖数据逐期对比；用于观察重号和差异，不代表预测验证。</p>
+<div class="trend-wrap" aria-label="预测号码和历史开奖号码号码轴对比">
+<table class="trend-table" data-manual-key="{field}-{total_n}">
+  <thead>
+    <tr><th class="trend-label trend-head">期号/号码</th>{header}</tr>
+  </thead>
+  <tbody>
+    <tr class="trend-section"><th colspan="{total_n + 1}">最近 {min(periods, len(data))} 期开奖</th></tr>
+    {''.join(draw_rows)}
+    <tr class="trend-section"><th colspan="{total_n + 1}">本期综合推荐</th></tr>
+    {''.join(prediction_rows)}
+    <tr class="trend-section"><th colspan="{total_n + 1}">手动选择</th></tr>
+    {_manual_trend_row(total_n)}
+  </tbody>
+</table>
+</div>
+<p class="meta">同一列代表同一个号码；开奖行左侧“综合中N”表示最终主推与该期开奖号重合数量。自选号码保存在当前浏览器。</p>
 """
 
 
+def _ranked_numbers(counter, total_n=None):
+    if not counter:
+        return []
+    items = []
+    for n, cnt in counter.items():
+        ni = int(n)
+        if cnt > 0 and (total_n is None or 1 <= ni <= total_n):
+            items.append((ni, cnt))
+    return [n for n, _ in sorted(items, key=lambda item: (-item[1], item[0]))]
+
+
 def _recommendation(all_preds, counter, pick):
-    combined = Counter()
-    for name, nums in all_preds.items():
-        for n in nums:
-            combined[int(n)] += 1
-    top = [n for n, _ in combined.most_common(pick)]
+    ranked = _ranked_numbers(counter)
+    top = ranked[:pick]
+    if len(top) < pick:
+        fallback = []
+        for name in ("hot", "cold"):
+            fallback.extend(int(n) for n in all_preds.get(name, []))
+        if len(top) + len(set(fallback) - set(top)) < pick:
+            for nums in all_preds.values():
+                fallback.extend(int(n) for n in nums)
+        for n in fallback:
+            if n not in top:
+                top.append(n)
+            if len(top) >= pick:
+                break
     top.sort()
     return top
+
+
+def _recommendation_tiers(predictions, counter, pick, total_n):
+    ranked = _ranked_numbers(counter, total_n)
+    rec_set = set(_recommendation(predictions, counter, pick))
+    rec_ranked = [n for n in ranked if n in rec_set]
+    for n in _recommendation(predictions, counter, pick):
+        if n not in rec_ranked:
+            rec_ranked.append(n)
+
+    core_count = max(1, min(len(rec_ranked), (pick + 1) // 2))
+    core = sorted(rec_ranked[:core_count])
+    backup = sorted(rec_ranked[core_count:pick])
+    watch_count = min(max(2, pick // 2), max(0, total_n - pick))
+    watch = sorted([n for n in ranked if n not in rec_set][:watch_count])
+    return {"core": core, "backup": backup, "watch": watch}
 
 
 def _best_recent_match(data, field, predicted, periods=10):
@@ -337,12 +511,29 @@ def _key_summary_section(data, areas, evaluation=None):
         pick = cfg["pick"]
         total_n = cfg["total"]
         rec = _recommendation(predictions, counter, pick)
+        tiers = _recommendation_tiers(predictions, counter, pick, total_n)
         best = _best_recent_match(data, field, rec, 10)
         omissions = _top_omissions(data, field, total_n, min(5, total_n))
         omit_text = " ".join(f"{n:02d}<span class=\"meta\">({o})</span>" for n, o in omissions)
+        reason_rows = "".join(
+            f'<div class="reason-row"><span class="num">{n:02d}</span><span>{_number_reasons(n, predictions, counter)}</span></div>'
+            for n in tiers["core"][:min(6, len(tiers["core"]))]
+        )
+        cards.append(f"""
+<div class="summary-card primary">
+  <div class="title">{label}最终主推</div>
+  <div class="tier-box">
+    <div class="tier-line"><span class="tier-label">核心号</span><span>{_fmt_nums(tiers["core"])}</span></div>
+    <div class="tier-line"><span class="tier-label">备选号</span><span>{_fmt_nums(tiers["backup"])}</span></div>
+    <div class="tier-line"><span class="tier-label">观察号</span><span>{_fmt_nums(tiers["watch"])}</span></div>
+  </div>
+  <div class="line">主推共 {len(rec)} 个，基于采样频次排序；五组候选只作为来源解释。</div>
+  <div class="reason-list">{reason_rows}</div>
+</div>
+""")
         cards.append(f"""
 <div class="summary-card">
-  <div class="title">{label}综合推荐</div>
+  <div class="title">{label}主推结构</div>
   <div>{_fmt_nums(rec)}</div>
   <div class="line">和值 {sum(rec)}  |  奇偶 {sum(1 for n in rec if n % 2 == 1)}:{pick - sum(1 for n in rec if n % 2 == 1)}</div>
 </div>
@@ -509,9 +700,9 @@ def _expert_section_html(experts, all_picks, labels):
 GROUP_LABELS = {
     "hot": "热门",
     "cold": "冷门",
-    "kill_a": "杀号A(随机)",
-    "kill_b": "杀号B(高频)",
-    "kill_c": "杀号C(等距)",
+    "kill_a": "中间候选A(随机)",
+    "kill_b": "中间候选B(高频)",
+    "kill_c": "中间候选C(等距)",
     "recommendation": "综合推荐",
 }
 
@@ -614,7 +805,7 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 <div class="matrix">{_history_matrix(data, field, total_n, 10)}</div>
 
 <h3>🔎 本期预测 vs 最近10期开奖</h3>
-{_prediction_history_comparison(data, field, predictions, counter, pick, 10)}
+{_prediction_history_comparison(data, field, predictions, counter, pick, 10, total_n)}
 
 <div style="display:flex;gap:16px;flex-wrap:wrap">
 <div style="flex:1;min-width:280px">
@@ -627,10 +818,10 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 </div>
 </div>
 
-<h3>📋 五组预测</h3>
-{_predictions_table(predictions, {}, actual_set)}
+<h3>📋 推荐来源参考</h3>
+{_predictions_table(predictions, counter, actual_set)}
 
-<h3>🗑️ 系统杀号后剩余</h3>
+<h3>低覆盖号码参考</h3>
 <div class="group-box">
 {_remaining_section(predictions, counter, total_n)}
 </div>
@@ -656,20 +847,26 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 
     html += """
 <hr>
-<h2>⭐ 综合推荐</h2>
+<h2>⭐ 最终主推</h2>
 <div style="display:flex;flex-wrap:wrap;gap:16px">
 """
 
     for label, field, predictions, counter, cfg in areas:
         pick = cfg["pick"]
+        total_n = cfg["total"]
         rec = _recommendation(predictions, counter, pick)
+        tiers = _recommendation_tiers(predictions, counter, pick, total_n)
         rs = sum(rec)
         rodd = sum(1 for n in rec if n % 2 == 1)
         rspan = max(rec) - min(rec)
         html += f"""
 <div class="group-box" style="flex:1;min-width:250px">
-<div><b>{label} Top {pick}</b></div>
-<p style="font-size:16px">{" ".join(f'<span class="num">{n:02d}</span>' for n in rec)}</p>
+<div><b>{label}最终主推</b></div>
+<div class="tier-box">
+  <div class="tier-line"><span class="tier-label">核心号</span><span>{_fmt_nums(tiers["core"])}</span></div>
+  <div class="tier-line"><span class="tier-label">备选号</span><span>{_fmt_nums(tiers["backup"])}</span></div>
+  <div class="tier-line"><span class="tier-label">观察号</span><span>{_fmt_nums(tiers["watch"])}</span></div>
+</div>
 <p class="meta">和值{rs} 奇偶{rodd}:{pick-rodd} 跨度{rspan}</p>
 </div>"""
 
@@ -702,7 +899,7 @@ def _build_html(data, latest_draw, predictions, counter, cfg, lotid, next_period
 <div class="matrix">{_history_matrix(data, field, total_n, 10)}</div>
 
 <h2>🔎 本期预测 vs 最近10期开奖</h2>
-{_prediction_history_comparison(data, field, predictions, counter, pick, 10)}
+{_prediction_history_comparison(data, field, predictions, counter, pick, 10, total_n)}
 
 <h2>🔴 遗漏 Top 10（最冷号）</h2>
 {_omission_bar(data, field, total_n)}
@@ -710,19 +907,25 @@ def _build_html(data, latest_draw, predictions, counter, cfg, lotid, next_period
 <h2>📈 采样频次 TOP {min(15, total_n)}</h2>
 {_freq_chart(counter, total_n, min(15, total_n))}
 
-<h2>📋 五组预测结果</h2>
-{_predictions_table(predictions, {}, actual_set)}
+<h2>📋 推荐来源参考</h2>
+{_predictions_table(predictions, counter, actual_set)}
 
-<h2>⭐ 推荐参考（综合排名 Top {pick}）</h2>
+<h2>⭐ 最终主推</h2>
 <div class="group-box">
-<p style="font-size:18px">
 """
     rec = _recommendation(predictions, counter, pick)
-    html += " ".join(f'<span class="num">{n:02d}</span>' for n in rec)
+    tiers = _recommendation_tiers(predictions, counter, pick, total_n)
+    html += f"""
+<div class="tier-box">
+  <div class="tier-line"><span class="tier-label">核心号</span><span>{_fmt_nums(tiers["core"])}</span></div>
+  <div class="tier-line"><span class="tier-label">备选号</span><span>{_fmt_nums(tiers["backup"])}</span></div>
+  <div class="tier-line"><span class="tier-label">观察号</span><span>{_fmt_nums(tiers["watch"])}</span></div>
+</div>
+"""
 
     rs = sum(rec)
     rodd = sum(1 for n in rec if n % 2 == 1)
     rspan = max(rec) - min(rec)
-    html += f'</p><p class="meta">和值{rs} 奇偶{rodd}:{pick-rodd} 跨度{rspan}</p>'
+    html += f'<p class="meta">和值{rs} 奇偶{rodd}:{pick-rodd} 跨度{rspan}</p>'
     html += "</div></body></html>"
     return html

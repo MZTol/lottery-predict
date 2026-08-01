@@ -25,9 +25,9 @@ HISTORY_FILES = {
 GROUP_LABELS = {
     "hot": "热门",
     "cold": "冷门",
-    "kill_a": "杀号A",
-    "kill_b": "杀号B",
-    "kill_c": "杀号C",
+    "kill_a": "中间候选A",
+    "kill_b": "中间候选B",
+    "kill_c": "中间候选C",
     "recommendation": "综合推荐",
 }
 

@@ -27,11 +27,22 @@ def _save_store(store, filename=PREDICTIONS_FILE):
     os.replace(tmp, filename)
 
 
-def _recommendation(predictions, pick):
-    combined = Counter()
-    for nums in predictions.values():
-        combined.update(int(n) for n in nums)
-    top = sorted(n for n, _ in combined.most_common(pick))
+def _recommendation(predictions, pick, counter=None):
+    if counter:
+        ranked = sorted(
+            ((int(n), cnt) for n, cnt in counter.items() if cnt > 0),
+            key=lambda item: (-item[1], item[0]),
+        )
+        top = [n for n, _ in ranked[:pick]]
+    else:
+        combined = Counter()
+        for name in ("hot", "cold"):
+            combined.update(int(n) for n in predictions.get(name, []))
+        if len(combined) < pick:
+            for nums in predictions.values():
+                combined.update(int(n) for n in nums)
+        top = [n for n, _ in combined.most_common(pick)]
+    top = sorted(top)
     return [f"{n:02d}" for n in top]
 
 
@@ -62,7 +73,7 @@ def save_prediction(lotid, period, seed, areas, filename=PREDICTIONS_FILE):
             "pick": pick,
             "sample_count": sum(counter.values()),
             "predictions": clean_predictions,
-            "recommendation": _recommendation(clean_predictions, pick),
+            "recommendation": _recommendation(clean_predictions, pick, counter),
         }
 
     lot_store[period_key] = record
