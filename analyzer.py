@@ -200,6 +200,8 @@ DEFAULT_WEIGHTS = {
     "prime": 0.08,
 }
 
+MODEL_SAMPLE_TARGET = 150
+
 
 def generate_weights(data, cfg, weights_override=None):
     wt = weights_override or DEFAULT_WEIGHTS
@@ -229,11 +231,123 @@ def combine_dimensions(dims, wt, total_n):
     ]
 
 
+def weight_variants(base_wt, delta=0.12):
+    variants = [dict(base_wt)]
+    for k in base_wt:
+        v = dict(base_wt)
+        v[k] = min(v[k] + delta, 0.35)
+        others = [o for o in base_wt if o != k]
+        if others:
+            each = delta / len(others)
+            for o in others:
+                v[o] = max(v[o] - each, 0)
+        variants.append(v)
+    return variants
+
+
+def _sample_plan(variant_count, total_samples=MODEL_SAMPLE_TARGET):
+    if variant_count <= 0:
+        return []
+    base = total_samples // variant_count
+    extra = total_samples % variant_count
+    return [base + (1 if i < extra else 0) for i in range(variant_count)]
+
+
+def _pad_unique(nums, candidates, pick):
+    out = []
+    for n in nums:
+        if n not in out:
+            out.append(n)
+        if len(out) >= pick:
+            return out
+    for n in candidates:
+        if n not in out:
+            out.append(n)
+        if len(out) >= pick:
+            return out
+    return out
+
+
+def _spread_pick(candidates, pick):
+    if not candidates or pick <= 0:
+        return []
+    if len(candidates) <= pick:
+        return list(candidates)
+    step = len(candidates) / pick
+    return [candidates[min(int(i * step), len(candidates) - 1)] for i in range(pick)]
+
+
+def generate_prediction_groups(data, cfg, seed, sample_target=MODEL_SAMPLE_TARGET):
+    """Generate report groups and the sampling counter with the tuned production model."""
+    from utils import generate_filtered
+
+    pick = int(cfg["pick"])
+    total = int(cfg["total"])
+    best_avg, best_wt, best_win = tune_weights(data, cfg)
+    model_data = data[:best_win] if best_win and len(data) >= best_win else data
+
+    cooccur = compute_cooccurrence(model_data, cfg)
+    dims = compute_all_dimensions(model_data, cfg)
+    variants = weight_variants(best_wt)
+    plan = _sample_plan(len(variants), sample_target)
+
+    all_numbers = []
+    for vi, wt in enumerate(variants):
+        w = combine_dimensions(dims, wt, total)
+        for i in range(plan[vi]):
+            s = seed * 100000 + vi * 10000 + i
+            r = generate_filtered(w, pick, s, cfg, cooccur, max_attempts=30)
+            if r:
+                all_numbers.extend(int(n) for n in r)
+
+    counter = Counter(all_numbers)
+    ranked = [n for n, _ in counter.most_common()]
+    all_candidates = list(range(1, total + 1))
+
+    top = _pad_unique(ranked[:pick], all_candidates, pick)
+    hot = [str(n).zfill(2) for n in sorted(top)]
+
+    bottom = _pad_unique(list(reversed(ranked))[:pick], all_candidates, pick)
+    cold = [str(n).zfill(2) for n in sorted(bottom)]
+
+    edge_set = set(top) | set(bottom)
+    middle_freq = [n for n in ranked if n not in edge_set]
+    middle_b = _pad_unique(middle_freq[:pick], all_candidates, pick)
+    kill_b = [str(n).zfill(2) for n in sorted(middle_b)]
+
+    middle_sorted = [n for n in all_candidates if n not in edge_set]
+    spread = _pad_unique(_spread_pick(middle_sorted, pick), all_candidates, pick)
+    kill_c = [str(n).zfill(2) for n in sorted(spread)]
+
+    import random
+    rng = random.Random(seed)
+    pool = middle_sorted if len(middle_sorted) >= pick else all_candidates
+    kill_a_nums = rng.sample(pool, min(pick, len(pool)))
+    kill_a = [str(n).zfill(2) for n in sorted(_pad_unique(kill_a_nums, all_candidates, pick))]
+
+    predictions = {
+        "hot": hot,
+        "cold": cold,
+        "kill_a": kill_a,
+        "kill_b": kill_b,
+        "kill_c": kill_c,
+    }
+    meta = {
+        "best_avg": best_avg,
+        "best_window": best_win,
+        "model_window": len(model_data),
+        "variant_count": len(variants),
+        "sample_count": sum(counter.values()),
+    }
+    return predictions, counter, meta
+
+
 # ─── 回测 ───
 
 WINDOWS = [20, 30, 50]
 BACKTEST_COUNT = 15
 BACKTEST_SEED_TRIALS = 3
+BACKTEST_FILTER_ATTEMPTS = 30
 
 
 def _backtest_window_dims(data, cfg, window, test_count=BACKTEST_COUNT):
@@ -247,24 +361,28 @@ def _backtest_window_dims(data, cfg, window, test_count=BACKTEST_COUNT):
             continue
         actual = {int(n) for n in data[idx][cfg["field"]]}
         dims = compute_all_dimensions(train, cfg)
+        cooccur = compute_cooccurrence(train, cfg)
         period_seed = int(data[idx]["period"])
         weight = 1.0 + (usable_count - idx) / usable_count
-        entries.append((actual, dims, period_seed, weight))
+        entries.append((actual, dims, cooccur, period_seed, weight))
     return entries
 
 
 def _eval_weights(entries, cfg, wt, seed_trials=BACKTEST_SEED_TRIALS):
     """对预计算的数据，用给定权重组合评估命中率"""
-    from utils import weighted_sample
+    from utils import generate_filtered
     total_hits, total_weight = 0.0, 0.0
     for entry in entries:
         if entry is None:
             continue
-        actual, dims, seed, weight = entry
+        actual, dims, cooccur, seed, weight = entry
         w = combine_dimensions(dims, wt, cfg["total"])
         hits = 0
         for si in range(seed_trials):
-            pred = weighted_sample(w, cfg["pick"], seed * 1000 + si)
+            pred = generate_filtered(
+                w, cfg["pick"], seed * 1000 + si, cfg, cooccur,
+                max_attempts=BACKTEST_FILTER_ATTEMPTS,
+            )
             pred_set = {int(n) for n in pred}
             hits += len(pred_set & actual)
         avg_hits = hits / seed_trials

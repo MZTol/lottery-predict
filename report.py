@@ -60,6 +60,22 @@ def _style():
         .summary-card.primary { border-color: #16213e; grid-column: 1 / -1; }
         .summary-card .title { color: #16213e; font-size: 14px; font-weight: 700; margin-bottom: 6px; }
         .summary-card .line { color: #555; font-size: 12px; margin-top: 5px; }
+        .data-status { display: block; margin: 8px 0 12px; border: 1px solid #ddd; border-left: 4px solid #155724; border-radius: 8px; background: #fff; padding: 8px 10px; color: #555; font-size: 12px; font-weight: 700; }
+        .data-status.stale { border-left-color: #9f1239; }
+        .data-status .state { color: #155724; font-weight: 900; }
+        .data-status.stale .state { color: #9f1239; }
+        .today-grid { display: grid; gap: 10px; margin: 10px 0 16px; }
+        .today-card { background: #fff; border: 1px solid #d8dde6; border-radius: 8px; padding: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .today-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+        .today-title { color: #16213e; font-size: 15px; font-weight: 900; }
+        .today-badge { background: #16213e; color: #fff; border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 800; white-space: nowrap; }
+        .today-rec { margin: 6px 0 8px; }
+        .today-rec .num { font-size: 16px; padding: 2px 5px; }
+        .today-lines { display: grid; gap: 6px; margin-top: 8px; }
+        .today-line { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 8px; align-items: start; color: #555; font-size: 12px; }
+        .today-line b { color: #16213e; }
+        .source-details { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 9px 10px; margin: 8px 0 12px; }
+        .source-details summary { color: #16213e; cursor: pointer; font-size: 14px; font-weight: 800; }
         .tier-box { display: grid; gap: 7px; margin-top: 6px; }
         .tier-line { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 8px; align-items: start; }
         .tier-label { color: #16213e; font-size: 12px; font-weight: 800; line-height: 1.5; }
@@ -70,6 +86,21 @@ def _style():
         .source-row { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 8px 9px; }
         .source-head { display: flex; justify-content: space-between; gap: 8px; color: #16213e; font-size: 13px; font-weight: 800; margin-bottom: 4px; }
         .source-note { color: #666; font-size: 12px; margin-top: 4px; }
+        .review-card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 11px 12px; margin: 10px 0; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .review-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 8px; }
+        .review-title { color: #16213e; font-size: 15px; font-weight: 800; }
+        .review-score { color: #fff; background: #e94560; border-radius: 999px; padding: 2px 8px; font-size: 13px; font-weight: 800; white-space: nowrap; }
+        .review-lines { display: grid; gap: 7px; }
+        .review-line { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; align-items: start; }
+        .review-line b { color: #16213e; font-size: 12px; line-height: 1.6; }
+        .review-details { margin-top: 8px; }
+        .review-details summary { color: #666; font-size: 12px; font-weight: 700; cursor: pointer; }
+        .expert-block { margin: 14px 0; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; background: #fff; }
+        .expert-block summary { color: #16213e; font-size: 16px; font-weight: 800; cursor: pointer; }
+        .expert-note { color: #666; font-size: 12px; margin: 7px 0 10px; }
+        .expert-overlap { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; margin: 8px 0 10px; }
+        .expert-overlap-card { border: 1px solid #eee; border-radius: 8px; padding: 8px; background: #fafafa; }
+        .expert-overlap-card .title { color: #16213e; font-size: 13px; font-weight: 800; margin-bottom: 4px; }
         .trend-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 8px 0 6px; border: 1px solid #d8dde6; border-radius: 8px; background: #fff; }
         .trend-table { border-collapse: separate; border-spacing: 0; table-layout: fixed; width: max-content; min-width: 100%; margin: 0; font-size: 12px; }
         .trend-table th, .trend-table td { border: 0; border-right: 1px solid #edf0f5; border-bottom: 1px solid #edf0f5; padding: 0; text-align: center; }
@@ -327,7 +358,13 @@ def _source_explanation_section(predictions, counter):
 
 
 def _predictions_table(predictions, counters, actual_set):
-    return _source_explanation_section(predictions, Counter())
+    return f"""
+<details class="source-details">
+  <summary>推荐来源参考（默认折叠）</summary>
+  <p class="source-note">这里只解释五组候选来源；综合推荐仍以采样频次最高的号码为主。</p>
+  {_source_explanation_section(predictions, Counter())}
+</details>
+"""
 
 
 def _comparison_cell(predicted, actual_set):
@@ -348,6 +385,23 @@ def _compare_item(label, nums, actual_set):
 def _td(label, value, style=""):
     style_attr = f' style="{style}"' if style else ""
     return f'<td data-label="{label}"{style_attr}>{value}</td>'
+
+
+def _data_status_section(status):
+    if not status:
+        return ""
+    age = status.get("age_hours")
+    age_text = f"{age:.1f}小时前" if isinstance(age, (int, float)) else "未知"
+    cls = "" if status.get("fresh") else "stale"
+    last_draw = status.get("last_draw_time") or "未知"
+    return f"""
+<div class="data-status {cls}">
+  数据：<span class="state">{status.get('state', '未知')}</span>
+  · 最新 {status.get('latest_period', '')}期
+  · 缓存 {age_text}
+  · 最近开奖 {last_draw}
+</div>
+"""
 
 
 def _trend_total_n(data, field, predictions, total_n=None):
@@ -515,57 +569,37 @@ def _key_summary_section(data, areas, evaluation=None):
         best = _best_recent_match(data, field, rec, 10)
         omissions = _top_omissions(data, field, total_n, min(5, total_n))
         omit_text = " ".join(f"{n:02d}<span class=\"meta\">({o})</span>" for n, o in omissions)
-        reason_rows = "".join(
-            f'<div class="reason-row"><span class="num">{n:02d}</span><span>{_number_reasons(n, predictions, counter)}</span></div>'
-            for n in tiers["core"][:min(6, len(tiers["core"]))]
-        )
-        cards.append(f"""
-<div class="summary-card primary">
-  <div class="title">{label}最终主推</div>
-  <div class="tier-box">
-    <div class="tier-line"><span class="tier-label">核心号</span><span>{_fmt_nums(tiers["core"])}</span></div>
-    <div class="tier-line"><span class="tier-label">备选号</span><span>{_fmt_nums(tiers["backup"])}</span></div>
-    <div class="tier-line"><span class="tier-label">观察号</span><span>{_fmt_nums(tiers["watch"])}</span></div>
-  </div>
-  <div class="line">主推共 {len(rec)} 个，基于采样频次排序；五组候选只作为来源解释。</div>
-  <div class="reason-list">{reason_rows}</div>
-</div>
-""")
-        cards.append(f"""
-<div class="summary-card">
-  <div class="title">{label}主推结构</div>
-  <div>{_fmt_nums(rec)}</div>
-  <div class="line">和值 {sum(rec)}  |  奇偶 {sum(1 for n in rec if n % 2 == 1)}:{pick - sum(1 for n in rec if n % 2 == 1)}</div>
-</div>
-""")
-        if best:
-            cards.append(f"""
-<div class="summary-card">
-  <div class="title">{label}近10期最相似</div>
-  <div>{best['period']}期，重号 {best['hit_count']} 个</div>
-  <div class="line">重号: {_fmt_nums(best['hits'])}</div>
-</div>
-""")
-        cards.append(f"""
-<div class="summary-card">
-  <div class="title">{label}当前遗漏高位</div>
-  <div>{omit_text}</div>
-  <div class="line">括号内为当前遗漏期数</div>
-</div>
-""")
         rec_eval = eval_by_field.get(field)
         if rec_eval:
-            cards.append(f"""
-<div class="summary-card">
-  <div class="title">{label}上期综合复盘</div>
-  <div>中 {len(rec_eval['hits'])} 个: {_fmt_nums(rec_eval['hits'])}</div>
-  <div class="line">未覆盖: {_fmt_nums(rec_eval['uncovered'])}</div>
+            predicted_count = len(rec_eval.get("predicted", [])) or pick
+            review_html = f"中 {len(rec_eval['hits'])}/{predicted_count}: {_fmt_nums(rec_eval['hits'])}"
+            review_miss = f"漏掉: {_fmt_nums(rec_eval['uncovered'])}"
+        else:
+            review_html = "暂无上期开奖复盘"
+            review_miss = "本次运行后会保存预测，下一期开奖后自动对比"
+        best_html = f"{best['period']}期，重号 {best['hit_count']} 个: {_fmt_nums(best['hits'])}" if best else "暂无"
+        cards.append(f"""
+<div class="today-card">
+  <div class="today-head">
+    <div class="today-title">{label}综合推荐</div>
+    <div class="today-badge">{pick}/{total_n}</div>
+  </div>
+  <div class="today-rec">{_fmt_nums(rec)}</div>
+  <div class="today-lines">
+    <div class="today-line"><b>上期</b><span>{review_html}<br><span class="meta">{review_miss}</span></span></div>
+    <div class="today-line"><b>分层</b><span>核心 {_fmt_nums(tiers["core"])}<br>备选 {_fmt_nums(tiers["backup"])}</span></div>
+    <div class="today-line"><b>结构</b><span>和值 {sum(rec)}，奇偶 {sum(1 for n in rec if n % 2 == 1)}:{pick - sum(1 for n in rec if n % 2 == 1)}</span></div>
+    <div class="today-line"><b>相似</b><span>{best_html}</span></div>
+    <div class="today-line"><b>遗漏</b><span>{omit_text}</span></div>
+  </div>
 </div>
 """)
+        if rec_eval:
+            continue
 
     return f"""
-<h2>关键结论</h2>
-<div class="key-summary">
+<h2>今日结论</h2>
+<div class="today-grid">
 {''.join(cards)}
 </div>
 """
@@ -642,11 +676,12 @@ def _omission_bar(data, field, total_n):
     """
 
 
-def _expert_section_html(experts, all_picks, labels):
+def _expert_section_html(experts, all_picks, labels, recommendations=None):
     if not experts:
         return ""
     from collections import Counter
 
+    recommendations = recommendations or {}
     fc = Counter(all_picks["front"])
     bc = Counter(all_picks["back"])
     label_f, label_b = labels
@@ -668,8 +703,32 @@ def _expert_section_html(experts, all_picks, labels):
 
     cons_f = fc.most_common(10)
     cons_b = bc.most_common(6)
+    cons_f_nums = [n for n, _ in cons_f]
+    cons_b_nums = [n for n, _ in cons_b]
     max_fc = max((c for _, c in cons_f), default=1)
     max_bc = max((c for _, c in cons_b), default=1)
+
+    overlap_blocks = []
+    front_rec = recommendations.get("front") or recommendations.get("numbers") or []
+    if cons_f_nums and front_rec:
+        overlap = sorted(set(cons_f_nums) & {int(n) for n in front_rec})
+        overlap_blocks.append(f"""
+<div class="expert-overlap-card">
+  <div class="title">{label_f}专家共识 vs 综合推荐</div>
+  <div>重合 {len(overlap)} 个: {_fmt_nums(overlap)}</div>
+  <div class="meta">仅作为外部参考，未参与综合推荐排序。</div>
+</div>
+""")
+    back_rec = recommendations.get("back") or []
+    if cons_b_nums and back_rec:
+        overlap = sorted(set(cons_b_nums) & {int(n) for n in back_rec})
+        overlap_blocks.append(f"""
+<div class="expert-overlap-card">
+  <div class="title">{label_b}专家共识 vs 综合推荐</div>
+  <div>重合 {len(overlap)} 个: {_fmt_nums(overlap)}</div>
+  <div class="meta">仅作为外部参考，未参与综合推荐排序。</div>
+</div>
+""")
 
     cons_rows = []
     for n, cnt in cons_f:
@@ -689,11 +748,15 @@ def _expert_section_html(experts, all_picks, labels):
     """
 
     return f"""
-    <hr>
-    <h2>👥 专家预测参考（共 {len(experts)} 位）</h2>
-    {expert_table}
-    <h3>📊 专家共识（{label_f} Top 10 + {label_b} Top 6）</h3>
-    {consensus_table}
+    <details class="expert-block">
+      <summary>专家外部参考（{len(experts)} 位，默认折叠）</summary>
+      <p class="expert-note">专家内容不参与综合推荐，仅用于观察外部共识和主推号码是否重合；后续复盘会单独评估专家共识是否强于随机。</p>
+      <div class="expert-overlap">{''.join(overlap_blocks) or '<p class="meta">暂无可计算的专家共识重合。</p>'}</div>
+      <h3>专家共识（{label_f} Top 10 + {label_b} Top 6）</h3>
+      {consensus_table}
+      <h3>专家原始推荐</h3>
+      {expert_table}
+    </details>
     """
 
 
@@ -704,6 +767,7 @@ GROUP_LABELS = {
     "kill_b": "中间候选B(高频)",
     "kill_c": "中间候选C(等距)",
     "recommendation": "综合推荐",
+    "expert_consensus": "专家共识",
 }
 
 
@@ -728,6 +792,25 @@ def _evaluation_section_html(evaluation):
 """
     for area in evaluation.get("areas", []):
         actual = area["actual"]
+        rec = next((comp for comp in area["comparisons"] if comp.get("name") == "recommendation"), None)
+        if rec:
+            hit_count = len(rec["hits"])
+            predicted_count = len(rec["predicted"])
+            html += f"""
+<div class="review-card">
+  <div class="review-head">
+    <div class="review-title">{area['label']}综合推荐复盘</div>
+    <div class="review-score">中 {hit_count}/{predicted_count}</div>
+  </div>
+  <div class="review-lines">
+    <div class="review-line"><b>开奖</b><span>{_fmt_nums(actual)}</span></div>
+    <div class="review-line"><b>上期预测</b><span>{_fmt_nums(rec['predicted'])}</span></div>
+    <div class="review-line"><b>命中</b><span>{_fmt_nums(rec['hits'])}</span></div>
+    <div class="review-line"><b>未中</b><span>{_fmt_nums(rec['misses'])}</span></div>
+    <div class="review-line"><b>漏掉</b><span>{_fmt_nums(rec['uncovered'])}</span></div>
+  </div>
+</div>
+"""
         rows = []
         for comp in area["comparisons"]:
             rows.append(
@@ -741,7 +824,8 @@ def _evaluation_section_html(evaluation):
                 f"</tr>"
             )
         html += f"""
-<h3>{area['label']} 实际开奖: {_fmt_nums(actual)}</h3>
+<details class="review-details">
+<summary>{area['label']}来源组明细</summary>
 <div class="table-wrap mobile-cards">
 <table class="wide-table stack-table">
     <thead>
@@ -752,11 +836,12 @@ def _evaluation_section_html(evaluation):
     </tbody>
 </table>
 </div>
+</details>
 """
     return html
 
 
-def generate_report(data, latest_draw, predictions, counter, cfg, lotid, next_period, seed, field="numbers", label="", overlay_hits=None):
+def generate_report(data, latest_draw, predictions, counter, cfg, lotid, next_period, seed, field="numbers", label="", overlay_hits=None, data_status=None):
     os.makedirs(REPORTS_DIR, exist_ok=True)
     total_n = cfg["total"]
     pick = cfg["pick"]
@@ -764,7 +849,7 @@ def generate_report(data, latest_draw, predictions, counter, cfg, lotid, next_pe
     actual_set = {int(n) for n in latest_draw[field]} if field in latest_draw else set()
     area_suffix = f"_{label}" if label else ""
 
-    html = _build_html(data, latest_draw, predictions, counter, cfg, lotid, next_period, seed, field, label)
+    html = _build_html(data, latest_draw, predictions, counter, cfg, lotid, next_period, seed, field, label, data_status)
     fname = f"{lotid}_{next_period}{area_suffix}.html"
     fpath = os.path.join(REPORTS_DIR, fname)
     with open(fpath, "w") as f:
@@ -773,7 +858,7 @@ def generate_report(data, latest_draw, predictions, counter, cfg, lotid, next_pe
     return fpath
 
 
-def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed, expert_data=None, evaluation=None):
+def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed, expert_data=None, evaluation=None, data_status=None):
     """areas: [(label, field, predictions, counter, cfg), ...]
        expert_data: [(label, experts, all_picks), ...] or None
     """
@@ -786,6 +871,7 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 <h1>🎯 {lot_name} {next_period}期 预测报告</h1>
 <p class="meta">生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  seed: {seed}</p>
 <p class="meta">数据: {len(data)} 期历史  |  最新开奖: {latest_draw['period']}期</p>
+{_data_status_section(data_status)}
 """
 
     html += _key_summary_section(data, areas, evaluation)
@@ -801,11 +887,11 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 <h2>📌 {label}（{pick}/{total_n}）</h2>
 <p class="meta">总采样: {sum(counter.values())} 次</p>
 
-<h3>📊 最近10期走势</h3>
-<div class="matrix">{_history_matrix(data, field, total_n, 10)}</div>
-
 <h3>🔎 本期预测 vs 最近10期开奖</h3>
 {_prediction_history_comparison(data, field, predictions, counter, pick, 10, total_n)}
+
+<h3>📊 最近10期走势</h3>
+<div class="matrix">{_history_matrix(data, field, total_n, 10)}</div>
 
 <div style="display:flex;gap:16px;flex-wrap:wrap">
 <div style="flex:1;min-width:280px">
@@ -828,22 +914,14 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 """
 
     if expert_data:
+        recommendations_by_field = {
+            field: _recommendation(predictions, counter, cfg["pick"])
+            for _, field, predictions, counter, cfg in areas
+        }
         for ed in expert_data:
             label, experts, all_picks = ed
             lbl_pair = {"前区": ("前区", "后区"), "后区": ("前区", "后区"), "红球": ("红球", "蓝球"), "蓝球": ("红球", "蓝球")}
-            html += _expert_section_html(experts, all_picks, lbl_pair.get(label, (label, "")))
-
-        for label, field, predictions, counter, cfg in areas:
-            total_n = cfg["total"]
-            expert_remain = _expert_remaining_section(expert_data, total_n, field)
-            if expert_remain:
-                html += f"""
-<hr>
-<h2>📌 {label} 专家杀号后剩余</h2>
-<div class="group-box">
-{expert_remain}
-</div>
-"""
+            html += _expert_section_html(experts, all_picks, lbl_pair.get(label, (label, "")), recommendations_by_field)
 
     html += """
 <hr>
@@ -879,7 +957,7 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
     return fpath
 
 
-def _build_html(data, latest_draw, predictions, counter, cfg, lotid, next_period, seed, field, label):
+def _build_html(data, latest_draw, predictions, counter, cfg, lotid, next_period, seed, field, label, data_status=None):
     total_n = cfg["total"]
     pick = cfg["pick"]
     lot_name = {"kl8": "快乐8", "dlt": "大乐透", "ssq": "双色球"}.get(lotid, lotid)
@@ -892,14 +970,15 @@ def _build_html(data, latest_draw, predictions, counter, cfg, lotid, next_period
 <h1>🎯 {lot_name} {next_period}期{area_str} 预测报告</h1>
 <p class="meta">生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  seed: {seed}  |  总采样: {sum(counter.values())} 次</p>
 <p class="meta">数据: {len(data)} 期历史  |  选号: {pick}/{total_n}  |  最新开奖: {latest_draw['period']}期</p>
+{_data_status_section(data_status)}
 
 {_key_summary_section(data, [(label or "号码", field, predictions, counter, cfg)], None)}
 
-<h2>📊 最近10期走势</h2>
-<div class="matrix">{_history_matrix(data, field, total_n, 10)}</div>
-
 <h2>🔎 本期预测 vs 最近10期开奖</h2>
 {_prediction_history_comparison(data, field, predictions, counter, pick, 10, total_n)}
+
+<h2>📊 最近10期走势</h2>
+<div class="matrix">{_history_matrix(data, field, total_n, 10)}</div>
 
 <h2>🔴 遗漏 Top 10（最冷号）</h2>
 {_omission_bar(data, field, total_n)}

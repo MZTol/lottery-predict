@@ -15,6 +15,7 @@ import prediction_store
 import report
 import review_report
 import site_index
+import utils
 
 
 class CoreLogicTests(unittest.TestCase):
@@ -72,6 +73,67 @@ class CoreLogicTests(unittest.TestCase):
         self.assertTrue(all(p < 120 for p in captured[0]))
         self.assertTrue(all(p < 119 for p in captured[1]))
 
+    def test_backtest_evaluation_uses_filtered_production_generator(self):
+        cfg = {"total": 3, "pick": 1, "field": "numbers", "zones": 1}
+        dims = {name: [1.0, 0.0, 0.0] for name in analyzer.DEFAULT_WEIGHTS}
+        entries = [({1}, dims, [[0.0] * 3 for _ in range(3)], 120, 1.0)]
+
+        with patch("utils.generate_filtered", return_value=["01"]) as mocked:
+            score = analyzer._eval_weights(entries, cfg, analyzer.DEFAULT_WEIGHTS, seed_trials=2)
+
+        self.assertEqual(score, 1.0)
+        self.assertEqual(mocked.call_count, 2)
+        self.assertEqual(mocked.call_args.kwargs["max_attempts"], analyzer.BACKTEST_FILTER_ATTEMPTS)
+
+    def test_prediction_generation_uses_best_window_and_all_weight_variants(self):
+        data = [
+            {"period": str(period), "numbers": ["01", "02", "03"]}
+            for period in range(10, 4, -1)
+        ]
+        cfg = {"total": 12, "pick": 3, "field": "numbers", "zones": 3}
+        dim_windows = []
+        co_windows = []
+        calls = []
+
+        def fake_dimensions(train, _cfg):
+            dim_windows.append(len(train))
+            return {name: [1.0] * _cfg["total"] for name in analyzer.DEFAULT_WEIGHTS}
+
+        def fake_cooccurrence(train, _cfg):
+            co_windows.append(len(train))
+            return [[0.0] * _cfg["total"] for _ in range(_cfg["total"])]
+
+        def fake_generate(_weights, k, _seed, _cfg, _cooccur, max_attempts=30):
+            calls.append(_seed)
+            start = ((len(calls) - 1) % _cfg["total"]) + 1
+            nums = [((start + offset - 1) % _cfg["total"]) + 1 for offset in range(k)]
+            return [str(n).zfill(2) for n in nums]
+
+        with patch("analyzer.tune_weights", return_value=(2.0, analyzer.DEFAULT_WEIGHTS, 3)):
+            with patch("analyzer.compute_all_dimensions", side_effect=fake_dimensions):
+                with patch("analyzer.compute_cooccurrence", side_effect=fake_cooccurrence):
+                    with patch("utils.generate_filtered", side_effect=fake_generate):
+                        predictions, counter, meta = analyzer.generate_prediction_groups(
+                            data, cfg, seed=999, sample_target=20
+                        )
+
+        self.assertEqual(dim_windows, [3])
+        self.assertEqual(co_windows, [3])
+        self.assertEqual(meta["model_window"], 3)
+        self.assertEqual(meta["variant_count"], len(analyzer.DEFAULT_WEIGHTS) + 1)
+        self.assertEqual(len(calls), 20)
+        self.assertEqual(sum(counter.values()), 60)
+        self.assertEqual(len(predictions["hot"]), 3)
+
+    def test_small_pick_generation_skips_large_combo_filters(self):
+        cfg = {"total": 16, "pick": 1, "field": "back", "zones": 4}
+
+        with patch("utils.weighted_sample", return_value=["16"]) as mocked:
+            result = utils.generate_filtered([0.0] * 15 + [1.0], 1, 7, cfg, max_attempts=3)
+
+        self.assertEqual(result, ["16"])
+        self.assertEqual(mocked.call_count, 1)
+
     def test_saved_prediction_can_be_evaluated_against_actual_draw(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             filename = os.path.join(tmpdir, "predictions_history.json")
@@ -104,6 +166,35 @@ class CoreLogicTests(unittest.TestCase):
         self.assertEqual(hot["uncovered"], [7, 9])
         rec = next(c for c in evaluation["areas"][0]["comparisons"] if c["name"] == "recommendation")
         self.assertEqual(rec["predicted"], [1, 2, 3, 4, 5])
+
+    def test_expert_consensus_is_saved_and_evaluated_separately(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filename = os.path.join(tmpdir, "predictions_history.json")
+            areas = [(
+                "前区",
+                "front",
+                {
+                    "hot": ["01", "02", "03", "04", "05"],
+                    "cold": ["06", "07", "08", "09", "10"],
+                    "kill_a": ["11", "12", "13", "14", "15"],
+                },
+                Counter({1: 5, 2: 4, 3: 3, 4: 2, 5: 1}),
+                {"total": 35, "pick": 5},
+            )]
+            expert_data = [("前区", [], {"front": [7, 7, 8, 8, 9, 10], "back": []})]
+
+            saved = prediction_store.save_prediction(
+                "dlt", 124, 124, areas, filename=filename, expert_data=expert_data
+            )
+            evaluation = prediction_store.evaluate_prediction(
+                "dlt",
+                {"period": "124", "front": ["07", "08", "09", "11", "12"]},
+                filename=filename,
+            )
+
+        self.assertEqual(saved["areas"]["front"]["expert_consensus"], ["07", "08", "09", "10"])
+        expert = next(c for c in evaluation["areas"][0]["comparisons"] if c["name"] == "expert_consensus")
+        self.assertEqual(expert["hits"], [7, 8, 9])
 
     def test_prediction_store_treats_empty_or_invalid_json_as_empty_history(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -178,6 +269,19 @@ class CoreLogicTests(unittest.TestCase):
         self.assertIn("manual-on", html)
         self.assertIn("data-manual-cell", html)
 
+    def test_expert_section_is_folded_external_reference(self):
+        html = report._expert_section_html(
+            [{"name": "专家A", "picks": {"5+2": {"front": [1, 2, 3, 4, 5], "back": [1, 2]}}}],
+            {"front": [1, 1, 2, 3, 8], "back": [1, 2]},
+            ("前区", "后区"),
+            {"front": [1, 4, 8], "back": [2]},
+        )
+
+        self.assertIn("<details", html)
+        self.assertIn("专家外部参考", html)
+        self.assertIn("未参与综合推荐", html)
+        self.assertIn("重合 2 个", html)
+
     def test_saved_recommendation_uses_sampling_counter(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             filename = os.path.join(tmpdir, "predictions_history.json")
@@ -227,15 +331,40 @@ class CoreLogicTests(unittest.TestCase):
 
         html = report._key_summary_section(data, areas, evaluation)
 
-        self.assertIn("关键结论", html)
-        self.assertIn("号码最终主推", html)
-        self.assertIn("核心号", html)
-        self.assertIn("备选号", html)
-        self.assertIn("观察号", html)
-        self.assertIn("号码近10期最相似", html)
-        self.assertIn("号码当前遗漏高位", html)
-        self.assertIn("号码上期综合复盘", html)
-        self.assertIn("中 2 个", html)
+        self.assertIn("今日结论", html)
+        self.assertIn("号码综合推荐", html)
+        self.assertIn("核心", html)
+        self.assertIn("备选", html)
+        self.assertIn("相似", html)
+        self.assertIn("遗漏", html)
+        self.assertIn("上期", html)
+        self.assertIn("中 2/3", html)
+
+    def test_evaluation_section_prioritizes_plain_recommendation_result(self):
+        evaluation = {
+            "period": "123",
+            "generated_at": "2026-01-01 18:00:00",
+            "seed": 123,
+            "areas": [{
+                "label": "号码",
+                "actual": [1, 3, 5],
+                "comparisons": [{
+                    "name": "recommendation",
+                    "predicted": [1, 2, 3],
+                    "hits": [1, 3],
+                    "misses": [2],
+                    "uncovered": [5],
+                }],
+            }],
+        }
+
+        html = report._evaluation_section_html(evaluation)
+
+        self.assertIn("号码综合推荐复盘", html)
+        self.assertIn("中 2/3", html)
+        self.assertIn("上期预测", html)
+        self.assertIn("漏掉", html)
+        self.assertIn("来源组明细", html)
 
     def test_review_report_compares_saved_predictions_to_random_baseline(self):
         store = {
@@ -253,6 +382,7 @@ class CoreLogicTests(unittest.TestCase):
                                 "kill_a": ["06", "07", "08", "09", "10"],
                             },
                             "recommendation": ["01", "02", "03", "04", "05"],
+                            "expert_consensus": ["01", "07", "08", "09", "10"],
                         }
                     },
                 }
@@ -264,11 +394,13 @@ class CoreLogicTests(unittest.TestCase):
 
         review = review_report.build_review("dlt", prediction_store=store, history=history)
 
-        self.assertEqual(len(review["rows"]), 3)
+        self.assertEqual(len(review["rows"]), 4)
         hot = next(row for row in review["rows"] if row["group"] == "hot")
         self.assertEqual(hot["hit_count"], 3)
         self.assertAlmostEqual(hot["expected"], 5 * 5 / 35)
         self.assertGreater(hot["delta"], 0)
+        expert = next(row for row in review["rows"] if row["group"] == "expert_consensus")
+        self.assertEqual(expert["hit_count"], 3)
 
         summary = review["summaries"][("前区", "recommendation")]
         self.assertEqual(summary["count"], 1)
@@ -276,8 +408,66 @@ class CoreLogicTests(unittest.TestCase):
 
         html = review_report.render_review_html(review)
         self.assertIn("大乐透 历史复盘", html)
+        self.assertIn("先看结论", html)
+        self.assertIn("前区最近一期", html)
+        self.assertIn("中 3/5", html)
+        self.assertIn("长期", html)
+        self.assertIn("专家共识", html)
         self.assertIn("随机基线", html)
         self.assertIn("长期统计", html)
+
+    def test_review_report_adds_frequency_and_omission_baselines_from_older_draws(self):
+        store = {
+            "kl8": {
+                "003": {
+                    "period": "003",
+                    "areas": {
+                        "numbers": {
+                            "label": "号码",
+                            "field": "numbers",
+                            "total": 5,
+                            "pick": 2,
+                            "predictions": {"hot": ["01", "02"]},
+                            "recommendation": ["01", "02"],
+                        }
+                    },
+                }
+            }
+        }
+        history = [
+            {"period": "003", "numbers": ["01", "02"]},
+            {"period": "002", "numbers": ["01", "03"]},
+            {"period": "001", "numbers": ["01", "04"]},
+        ]
+
+        review = review_report.build_review("kl8", prediction_store=store, history=history)
+
+        freq = next(row for row in review["rows"] if row["group"] == "baseline_frequency")
+        omission = next(row for row in review["rows"] if row["group"] == "baseline_omission")
+        self.assertEqual(freq["predicted"], [1, 3])
+        self.assertEqual(omission["predicted"], [2, 5])
+        self.assertEqual(review["summaries"][("号码", "baseline_frequency")]["count"], 1)
+
+        html = review_report.render_review_html(review)
+        self.assertIn("模型对比", html)
+        self.assertIn("模型是否有效", html)
+        self.assertIn("近期高频", html)
+        self.assertIn("当前遗漏", html)
+
+    def test_report_header_shows_data_cache_status(self):
+        html = report._data_status_section({
+            "state": "使用缓存",
+            "fresh": False,
+            "latest_period": "2026001",
+            "cache_time": "2026-08-03 01:05",
+            "age_hours": 12.25,
+            "last_draw_time": "2026-08-03 21:30",
+        })
+
+        self.assertIn("数据：", html)
+        self.assertIn("使用缓存", html)
+        self.assertIn("2026001期", html)
+        self.assertIn("12.2小时前", html)
 
     def test_site_index_generates_grouped_mobile_home_and_latest_aliases(self):
         with tempfile.TemporaryDirectory() as tmpdir:

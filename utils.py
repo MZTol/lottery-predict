@@ -74,6 +74,29 @@ def is_data_fresh(filepath, lotid, max_age_hours=1):
     return True
 
 
+def data_status(filepath, lotid, data=None, max_age_hours=1):
+    exists = os.path.exists(filepath)
+    mtime = datetime.fromtimestamp(os.path.getmtime(filepath)) if exists else None
+    age_hours = (datetime.now() - mtime).total_seconds() / 3600 if mtime else None
+    latest_period = data[0].get("period") if data else ""
+    last_draw = _last_draw_datetime(lotid)
+    fresh = is_data_fresh(filepath, lotid, max_age_hours) if exists else False
+    if not exists:
+        state = "无缓存"
+    elif fresh:
+        state = "数据较新"
+    else:
+        state = "使用缓存"
+    return {
+        "state": state,
+        "fresh": fresh,
+        "latest_period": str(latest_period),
+        "cache_time": mtime.strftime("%Y-%m-%d %H:%M") if mtime else "",
+        "age_hours": age_hours,
+        "last_draw_time": last_draw.strftime("%Y-%m-%d %H:%M") if last_draw else "",
+    }
+
+
 def ensure_fresh(filepath, lotid, max_age_hours=1):
     from crawler import fetch_incremental, fetch_all, save
 
@@ -168,15 +191,15 @@ def generate_filtered(weights, k, seed, cfg, cooccur=None, max_attempts=50, cooc
         s = seed * 1000 + offset
         result = weighted_sample(weights, k, s, cooccur, cooccur_factor)
         ns = [int(n) for n in result]
-        if not check_sum_range(result, cfg):
+        if k >= 5 and not check_sum_range(result, cfg):
             continue
-        if not check_odd_even_ratio(result):
+        if k >= 4 and not check_odd_even_ratio(result):
             continue
-        if not check_zone_distribution(result, cfg):
+        if k >= 4 and not check_zone_distribution(result, cfg):
             continue
-        if not check_consecutive(result):
+        if k >= 4 and not check_consecutive(result):
             continue
-        if not check_spread(result, cfg):
+        if k >= 5 and not check_spread(result, cfg):
             continue
         return result
     return weighted_sample(weights, k, seed * 1000, cooccur, cooccur_factor)

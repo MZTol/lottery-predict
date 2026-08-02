@@ -46,7 +46,18 @@ def _recommendation(predictions, pick, counter=None):
     return [f"{n:02d}" for n in top]
 
 
-def save_prediction(lotid, period, seed, areas, filename=PREDICTIONS_FILE):
+def _expert_consensus(expert_data, field, pick):
+    if not expert_data:
+        return []
+    key = "back" if field == "back" else "front"
+    counter = Counter()
+    for _, _, all_picks in expert_data:
+        counter.update(int(n) for n in all_picks.get(key, []))
+    top = [n for n, _ in counter.most_common(pick)]
+    return [f"{n:02d}" for n in sorted(top)]
+
+
+def save_prediction(lotid, period, seed, areas, filename=PREDICTIONS_FILE, expert_data=None):
     """Persist current run predictions so the next draw can be reviewed."""
     store = _load_store(filename)
     lot_store = store.setdefault(lotid, {})
@@ -66,7 +77,7 @@ def save_prediction(lotid, period, seed, areas, filename=PREDICTIONS_FILE):
             for name, nums in predictions.items()
         }
         pick = int(cfg["pick"])
-        record["areas"][field] = {
+        area_record = {
             "label": label,
             "field": field,
             "total": int(cfg["total"]),
@@ -75,6 +86,10 @@ def save_prediction(lotid, period, seed, areas, filename=PREDICTIONS_FILE):
             "predictions": clean_predictions,
             "recommendation": _recommendation(clean_predictions, pick, counter),
         }
+        expert_consensus = _expert_consensus(expert_data, field, pick)
+        if expert_consensus:
+            area_record["expert_consensus"] = expert_consensus
+        record["areas"][field] = area_record
 
     lot_store[period_key] = record
     _save_store(store, filename)
@@ -106,6 +121,8 @@ def evaluate_prediction(lotid, actual_draw, filename=PREDICTIONS_FILE):
         groups = dict(area.get("predictions", {}))
         if area.get("recommendation"):
             groups["recommendation"] = area["recommendation"]
+        if area.get("expert_consensus"):
+            groups["expert_consensus"] = area["expert_consensus"]
 
         comparisons = []
         actual_set = set(actual)

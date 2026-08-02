@@ -29,7 +29,12 @@ GROUP_LABELS = {
     "kill_b": "中间候选B",
     "kill_c": "中间候选C",
     "recommendation": "综合推荐",
+    "baseline_frequency": "近期高频",
+    "baseline_omission": "当前遗漏",
+    "expert_consensus": "专家共识",
 }
+
+PRIMARY_GROUPS = ("recommendation", "baseline_frequency", "baseline_omission", "expert_consensus")
 
 
 def _load_json(filename, default):
@@ -67,6 +72,19 @@ def _style():
       .stat { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 10px; }
       .stat .val { display: block; color: #16213e; font-size: 20px; font-weight: 700; }
       .stat .lbl { display: block; color: #666; font-size: 12px; margin-top: 2px; }
+      .plain-grid { display: grid; gap: 8px; margin: 10px 0 12px; }
+      .plain-card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 10px; }
+      .plain-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 6px; }
+      .plain-title { color: #16213e; font-size: 14px; font-weight: 800; }
+      .plain-score { color: #fff; background: #e94560; border-radius: 999px; padding: 2px 8px; font-size: 13px; font-weight: 800; white-space: nowrap; }
+      .plain-lines { display: grid; gap: 6px; }
+      .plain-line { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; align-items: start; }
+      .plain-line b { color: #16213e; font-size: 12px; line-height: 1.6; }
+      .verdict { display: inline-block; border-radius: 999px; padding: 2px 8px; color: #fff; font-size: 12px; font-weight: 800; white-space: nowrap; }
+      .verdict-warn { background: #7d8597; }
+      .verdict-good { background: #155724; }
+      .verdict-flat { background: #666; }
+      .verdict-bad { background: #9f1239; }
       .table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
       table { width: 100%; min-width: 760px; border-collapse: collapse; margin: 10px 0; background: #fff; font-size: 13px; }
       th, td { border: 1px solid #ddd; padding: 5px 6px; text-align: center; vertical-align: top; }
@@ -82,6 +100,7 @@ def _style():
         h1 { font-size: 21px; }
         h2 { font-size: 17px; }
         .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .plain-line { grid-template-columns: 52px minmax(0, 1fr); }
         .mobile-cards { overflow: visible; }
         .mobile-cards table,
         .mobile-cards thead,
@@ -132,6 +151,40 @@ def _compare_group(group_name, predicted, actual, total):
     }
 
 
+def _baseline_frequency(train, field, total, pick):
+    counts = defaultdict(int)
+    for entry in train:
+        for n in entry.get(field, []):
+            num = int(n)
+            if 1 <= num <= total:
+                counts[num] += 1
+    ranked = sorted(range(1, total + 1), key=lambda n: (-counts[n], n))
+    return ranked[:pick]
+
+
+def _baseline_omission(train, field, total, pick):
+    omission = {n: len(train) for n in range(1, total + 1)}
+    for idx, entry in enumerate(train):
+        nums = {int(n) for n in entry.get(field, [])}
+        for n in nums:
+            if 1 <= n <= total and omission[n] == len(train):
+                omission[n] = idx
+    ranked = sorted(range(1, total + 1), key=lambda n: (-omission[n], n))
+    return ranked[:pick]
+
+
+def _verdict(count, delta):
+    if count < 10:
+        return "样本不足", "verdict-warn", "少于10期，只能看格式和趋势"
+    if delta >= 0.20 and count >= 50:
+        return "明显强于随机", "verdict-good", "样本较多且平均命中高于随机"
+    if delta >= 0.08:
+        return "暂时强于随机", "verdict-good", "继续积累样本确认稳定性"
+    if delta <= -0.08:
+        return "弱于随机", "verdict-bad", "当前平均命中低于随机基线"
+    return "接近随机", "verdict-flat", "和随机基线差距很小"
+
+
 def build_review(lotid, prediction_store=None, history=None):
     prediction_store = prediction_store if prediction_store is not None else _load_json(PREDICTIONS_FILE, {})
     history = history if history is not None else _load_json(HISTORY_FILES[lotid], [])
@@ -154,20 +207,28 @@ def build_review(lotid, prediction_store=None, history=None):
         actual_draw = actual_by_period.get(str(period))
         if not actual_draw:
             continue
+        actual_index = history.index(actual_draw)
+        train = history[actual_index + 1:]
         for area in record.get("areas", {}).values():
             field = area.get("field")
             if field not in actual_draw:
                 continue
             actual = [int(n) for n in actual_draw[field]]
             total = int(area.get("total", max(actual) if actual else 0))
+            pick = int(area.get("pick") or len(area.get("recommendation", [])) or len(actual))
             groups = dict(area.get("predictions", {}))
             if area.get("recommendation"):
                 groups["recommendation"] = area["recommendation"]
+            if train:
+                groups["baseline_frequency"] = _baseline_frequency(train, field, total, pick)
+                groups["baseline_omission"] = _baseline_omission(train, field, total, pick)
+            if area.get("expert_consensus"):
+                groups["expert_consensus"] = area["expert_consensus"]
 
             for group_name, predicted in groups.items():
                 cmp = _compare_group(group_name, predicted, actual, total)
                 label = area.get("label", field)
-                lower_is_better = group_name.startswith("kill_")
+                lower_is_better = False
                 delta = cmp["delta"]
                 better = delta < -0.001 if lower_is_better else delta > 0.001
                 worse = delta > 0.001 if lower_is_better else delta < -0.001
@@ -218,7 +279,7 @@ def _summary_table(review):
         avg_hits = summary["hits"] / count
         avg_expected = summary["expected"] / count
         delta = avg_hits - avg_expected
-        lower_is_better = group_name.startswith("kill_")
+        lower_is_better = False
         cls = _baseline_class(delta, lower_is_better)
         best = summary["best"]
         worst = summary["worst"]
@@ -249,6 +310,136 @@ def _summary_table(review):
 </table>
 </div>
 """
+
+
+def _effectiveness_cards(review):
+    cards = []
+    for (area, group_name), summary in sorted(review["summaries"].items()):
+        if group_name != "recommendation":
+            continue
+        count = summary["count"]
+        avg_hits = summary["hits"] / count if count else 0.0
+        avg_expected = summary["expected"] / count if count else 0.0
+        delta = avg_hits - avg_expected
+        text, cls, note = _verdict(count, delta)
+        cards.append(f"""
+<div class="plain-card">
+  <div class="plain-head">
+    <div class="plain-title">{area}综合推荐</div>
+    <span class="verdict {cls}">{text}</span>
+  </div>
+  <div class="plain-lines">
+    <div class="plain-line"><b>期数</b><span>{count}期</span></div>
+    <div class="plain-line"><b>平均</b><span>中 {avg_hits:.2f} 个</span></div>
+    <div class="plain-line"><b>随机</b><span>约 {avg_expected:.2f} 个</span></div>
+    <div class="plain-line"><b>差值</b><span class="{_baseline_class(delta)}">{delta:+.2f}</span></div>
+    <div class="plain-line"><b>判断</b><span>{note}</span></div>
+  </div>
+</div>
+""")
+    if not cards:
+        return '<p class="meta">暂无综合推荐复盘数据。</p>'
+    return f'<div class="plain-grid">{"".join(cards)}</div>'
+
+
+def _model_comparison(review):
+    rows = []
+    by_area = defaultdict(dict)
+    for (area, group_name), summary in review["summaries"].items():
+        if group_name in PRIMARY_GROUPS:
+            by_area[area][group_name] = summary
+
+    for area, groups in sorted(by_area.items()):
+        random_source = groups.get("recommendation") or next(iter(groups.values()), None)
+        if random_source:
+            count = random_source["count"]
+            avg_expected = random_source["expected"] / count if count else 0.0
+            rows.append(
+                "<tr>"
+                + _td("区域", area)
+                + _td("模型", "随机基线")
+                + _td("期数", count)
+                + _td("平均命中", f"{avg_expected:.2f}")
+                + _td("随机基线", f"{avg_expected:.2f}")
+                + _td("差值", '<span class="flat">+0.00</span>')
+                + _td("结论", '<span class="verdict verdict-flat">基准</span>')
+                + "</tr>"
+            )
+
+        for group_name in PRIMARY_GROUPS:
+            summary = groups.get(group_name)
+            if not summary:
+                continue
+            count = summary["count"]
+            avg_hits = summary["hits"] / count if count else 0.0
+            avg_expected = summary["expected"] / count if count else 0.0
+            delta = avg_hits - avg_expected
+            text, cls, _ = _verdict(count, delta)
+            rows.append(
+                "<tr>"
+                + _td("区域", area)
+                + _td("模型", GROUP_LABELS.get(group_name, group_name))
+                + _td("期数", count)
+                + _td("平均命中", f"{avg_hits:.2f}")
+                + _td("随机基线", f"{avg_expected:.2f}")
+                + _td("差值", f'<span class="{_baseline_class(delta)}">{delta:+.2f}</span>')
+                + _td("结论", f'<span class="verdict {cls}">{text}</span>')
+                + "</tr>"
+            )
+
+    if not rows:
+        return '<p class="meta">暂无可对比数据。</p>'
+    return f"""
+<div class="table-wrap mobile-cards">
+<table>
+  <thead>
+    <tr><th>区域</th><th>模型</th><th>期数</th><th>平均命中</th><th>随机基线</th><th>差值</th><th>结论</th></tr>
+  </thead>
+  <tbody>{''.join(rows)}</tbody>
+</table>
+</div>
+"""
+
+
+def _plain_review_summary(review):
+    rec_rows = [row for row in review["rows"] if row["group"] == "recommendation"]
+    if not rec_rows:
+        return '<p class="meta">暂无综合推荐复盘数据。</p>'
+
+    cards = []
+    latest_by_area = {}
+    for row in rec_rows:
+        current = latest_by_area.get(row["area"])
+        if current is None or _num_key(row["period"]) > _num_key(current["period"]):
+            latest_by_area[row["area"]] = row
+
+    for area, row in sorted(latest_by_area.items()):
+        summary = review["summaries"].get((area, "recommendation"), {})
+        count = summary.get("count", 0)
+        avg_hits = summary.get("hits", 0.0) / count if count else 0.0
+        avg_expected = summary.get("expected", 0.0) / count if count else 0.0
+        delta = avg_hits - avg_expected
+        cls = _baseline_class(delta)
+        verdict = "强于随机" if delta > 0.001 else "低于随机" if delta < -0.001 else "接近随机"
+        cards.append(f"""
+<div class="plain-card">
+  <div class="plain-head">
+    <div class="plain-title">{area}最近一期</div>
+    <div class="plain-score">中 {row['hit_count']}/{len(row['predicted'])}</div>
+  </div>
+  <div class="plain-lines">
+    <div class="plain-line"><b>期号</b><span>{row['period']}期</span></div>
+    <div class="plain-line"><b>开奖</b><span>{_fmt_nums(row['actual'])}</span></div>
+    <div class="plain-line"><b>预测</b><span>{_fmt_nums(row['predicted'])}</span></div>
+    <div class="plain-line"><b>命中</b><span>{_fmt_nums(row['hits'])}</span></div>
+    <div class="plain-line"><b>没中</b><span>{_fmt_nums(row['misses'])}</span></div>
+    <div class="plain-line"><b>漏掉</b><span>{_fmt_nums(row['uncovered'])}</span></div>
+    <div class="plain-line"><b>长期</b><span>平均中 {avg_hits:.2f} 个，随机约 {avg_expected:.2f} 个，<span class="{cls}">{verdict}</span></span></div>
+  </div>
+</div>
+""")
+
+    return f'<div class="plain-grid">{"".join(cards)}</div>'
 
 
 def _detail_table(review, limit=80):
@@ -300,6 +491,18 @@ def render_review_html(review):
     <div class="stat"><span class="val">随机</span><span class="lbl">基线: 预测数×开奖号数/号码池</span></div>
   </div>
   <section class="section">
+    <h2>先看结论：模型是否有效</h2>
+    {_effectiveness_cards(review)}
+  </section>
+  <section class="section">
+    <h2>模型对比</h2>
+    {_model_comparison(review)}
+  </section>
+  <section class="section">
+    <h2>最近复盘</h2>
+    {_plain_review_summary(review)}
+  </section>
+  <section class="section">
     <h2>长期统计</h2>
     {_summary_table(review)}
   </section>
@@ -307,7 +510,7 @@ def render_review_html(review):
     <h2>最近明细</h2>
     {_detail_table(review)}
   </section>
-  <p class="meta">说明：推荐组以高于随机基线为好；杀号组以低于随机基线为好，因为杀号的目标是少撞开奖号。</p>
+  <p class="meta">说明：综合推荐是主判断，平均命中高于随机基线才有参考价值；中间候选A/B/C只作为来源参考，不作为最终结论。</p>
 </main>
 </body>
 </html>
