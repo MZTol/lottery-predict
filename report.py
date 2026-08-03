@@ -78,9 +78,6 @@ def _style():
         .today-line b { color: #16213e; }
         .source-details { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 9px 10px; margin: 8px 0 12px; }
         .source-details summary { color: #16213e; cursor: pointer; font-size: 14px; font-weight: 800; }
-        .tier-box { display: grid; gap: 7px; margin-top: 6px; }
-        .tier-line { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 8px; align-items: start; }
-        .tier-label { color: #16213e; font-size: 12px; font-weight: 800; line-height: 1.5; }
         .reason-list { display: grid; gap: 5px; margin-top: 8px; }
         .reason-row { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 7px; align-items: start; color: #555; font-size: 12px; }
         .reason-row .num { margin: 0; padding: 1px 4px; }
@@ -323,7 +320,7 @@ def _source_label(name):
 
 def _source_note(name):
     return {
-        "hot": "采样频次最高，是最终主推的主要来源。",
+        "hot": "采样频次最高，是直接购买号码的主要来源。",
         "cold": "采样中出现过但频次偏低，只作为补充观察。",
         "kill_a": "从中间区间随机抽取，用于增加覆盖，不参与主推排序。",
         "kill_b": "中间区间里频次较高的候选，不参与主推排序。",
@@ -376,7 +373,7 @@ def _predictions_table(predictions, counters, actual_set):
     return f"""
 <details class="source-details">
   <summary>推荐来源参考（默认折叠）</summary>
-  <p class="source-note">这里只解释五组候选来源；最终主推会按当前彩种策略从综合模型、近期高频或当前遗漏中选择。</p>
+  <p class="source-note">这里只解释五组候选来源；直接购买号码会按当前彩种策略从综合模型、近期高频或当前遗漏中选择。</p>
   {_source_explanation_section(predictions, Counter())}
 </details>
 """
@@ -587,7 +584,6 @@ def _key_summary_section(data, areas, evaluation=None, lotid=None):
             lotid, field, predictions, counter, cfg, history=data, use_saved_selection=True
         )
         detail = strategy_detail(lotid, field)
-        tiers = _recommendation_tiers(predictions, counter, pick, total_n, rec)
         best = _best_recent_match(data, field, rec, 10)
         omissions = _top_omissions(data, field, total_n, min(5, total_n))
         omit_text = " ".join(f"{n:02d}<span class=\"meta\">({o})</span>" for n, o in omissions)
@@ -603,14 +599,14 @@ def _key_summary_section(data, areas, evaluation=None, lotid=None):
         cards.append(f"""
 <div class="today-card">
   <div class="today-head">
-    <div class="today-title">{label}{strategy_label(strategy)}</div>
+    <div class="today-title">{_purchase_title(label)}</div>
     <div class="today-badge">{pick}/{total_n}</div>
   </div>
   <div class="today-rec">{_fmt_nums(rec)}</div>
   <div class="today-lines">
     <div class="today-line"><b>上期</b><span>{review_html}<br><span class="meta">{review_miss}</span></span></div>
     <div class="today-line"><b>策略</b><span>{strategy_label(strategy)}，{detail.get('selection_source', '默认策略')}，信心：{detail.get('confidence', '未开始动态选择')}</span></div>
-    <div class="today-line"><b>分层</b><span>核心 {_fmt_nums(tiers["core"])}<br>备选 {_fmt_nums(tiers["backup"])}</span></div>
+    <div class="today-line"><b>说明</b><span>这组号码就是本期直接可用的购买号码，不再拆成多层。</span></div>
     <div class="today-line"><b>结构</b><span>和值 {sum(rec)}，奇偶 {sum(1 for n in rec if n % 2 == 1)}:{pick - sum(1 for n in rec if n % 2 == 1)}</span></div>
     <div class="today-line"><b>相似</b><span>{best_html}</span></div>
     <div class="today-line"><b>遗漏</b><span>{omit_text}</span></div>
@@ -737,9 +733,9 @@ def _expert_section_html(experts, all_picks, labels, recommendations=None):
         overlap = sorted(set(cons_f_nums) & {int(n) for n in front_rec})
         overlap_blocks.append(f"""
 <div class="expert-overlap-card">
-  <div class="title">{label_f}专家共识 vs 综合推荐</div>
+  <div class="title">{label_f}专家共识 vs 购买号码</div>
   <div>重合 {len(overlap)} 个: {_fmt_nums(overlap)}</div>
-  <div class="meta">仅作为外部参考，未参与综合推荐排序。</div>
+  <div class="meta">仅作为外部参考，未参与直接购买号码排序。</div>
 </div>
 """)
     back_rec = recommendations.get("back") or []
@@ -747,9 +743,9 @@ def _expert_section_html(experts, all_picks, labels, recommendations=None):
         overlap = sorted(set(cons_b_nums) & {int(n) for n in back_rec})
         overlap_blocks.append(f"""
 <div class="expert-overlap-card">
-  <div class="title">{label_b}专家共识 vs 综合推荐</div>
+  <div class="title">{label_b}专家共识 vs 购买号码</div>
   <div>重合 {len(overlap)} 个: {_fmt_nums(overlap)}</div>
-  <div class="meta">仅作为外部参考，未参与综合推荐排序。</div>
+  <div class="meta">仅作为外部参考，未参与直接购买号码排序。</div>
 </div>
 """)
 
@@ -773,7 +769,7 @@ def _expert_section_html(experts, all_picks, labels, recommendations=None):
     return f"""
     <details class="expert-block">
       <summary>专家外部参考（{len(experts)} 位，默认折叠）</summary>
-      <p class="expert-note">专家内容不参与综合推荐，仅用于观察外部共识和主推号码是否重合；后续复盘会单独评估专家共识是否强于随机。</p>
+      <p class="expert-note">专家内容不参与直接购买号码，仅用于观察外部共识和购买号码是否重合；后续复盘会单独评估专家共识是否强于随机。</p>
       <div class="expert-overlap">{''.join(overlap_blocks) or '<p class="meta">暂无可计算的专家共识重合。</p>'}</div>
       <h3>专家共识（{label_f} Top 10 + {label_b} Top 6）</h3>
       {consensus_table}
@@ -789,7 +785,7 @@ GROUP_LABELS = {
     "kill_a": "中间候选A(随机)",
     "kill_b": "中间候选B(高频)",
     "kill_c": "中间候选C(等距)",
-    "recommendation": "最终主推",
+    "recommendation": "直接购买",
     "expert_consensus": "专家共识",
 }
 
@@ -798,6 +794,10 @@ def _fmt_nums(nums):
     if not nums:
         return '<span class="meta">无</span>'
     return '<span class="nums">' + "".join(f'<span class="num">{int(n):02d}</span>' for n in nums) + '</span>'
+
+
+def _purchase_title(label):
+    return "直接购买号码" if not label or label == "号码" else f"{label}直接购买号码"
 
 
 def _evaluation_section_html(evaluation):
@@ -822,7 +822,7 @@ def _evaluation_section_html(evaluation):
             html += f"""
 <div class="review-card">
   <div class="review-head">
-    <div class="review-title">{area['label']}最终主推复盘</div>
+    <div class="review-title">{area['label']}购买结果复盘</div>
     <div class="review-score">中 {hit_count}/{predicted_count}</div>
   </div>
   <div class="review-lines">
@@ -956,7 +956,7 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 
     html += """
 <hr>
-<h2>⭐ 最终主推</h2>
+<h2>⭐ 直接购买号码</h2>
 <div style="display:flex;flex-wrap:wrap;gap:16px">
 """
 
@@ -966,20 +966,15 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
         rec, strategy = choose_recommendation(
             lotid, field, predictions, counter, cfg, history=data, use_saved_selection=True
         )
-        tiers = _recommendation_tiers(predictions, counter, pick, total_n, rec)
         reasons_html = _number_reason_rows(rec, data, cfg, predictions, counter)
         rs = sum(rec)
         rodd = sum(1 for n in rec if n % 2 == 1)
         rspan = max(rec) - min(rec)
         html += f"""
 <div class="group-box" style="flex:1;min-width:250px">
-<div><b>{label}最终主推（{strategy_label(strategy)}）</b></div>
+<div><b>{_purchase_title(label)}（{strategy_label(strategy)}）</b></div>
+<div class="today-rec">{_fmt_nums(rec)}</div>
 {reasons_html}
-<div class="tier-box">
-  <div class="tier-line"><span class="tier-label">核心号</span><span>{_fmt_nums(tiers["core"])}</span></div>
-  <div class="tier-line"><span class="tier-label">备选号</span><span>{_fmt_nums(tiers["backup"])}</span></div>
-  <div class="tier-line"><span class="tier-label">观察号</span><span>{_fmt_nums(tiers["watch"])}</span></div>
-</div>
 <p class="meta">和值{rs} 奇偶{rodd}:{pick-rodd} 跨度{rspan}</p>
 </div>"""
 
@@ -1024,22 +1019,17 @@ def _build_html(data, latest_draw, predictions, counter, cfg, lotid, next_period
 <h2>📋 推荐来源参考</h2>
 {_predictions_table(predictions, counter, actual_set)}
 
-<h2>⭐ 最终主推</h2>
+<h2>⭐ 直接购买号码</h2>
 <div class="group-box">
 """
     rec, strategy = choose_recommendation(
         lotid, field, predictions, counter, cfg, history=data, use_saved_selection=True
     )
-    tiers = _recommendation_tiers(predictions, counter, pick, total_n, rec)
     reasons_html = _number_reason_rows(rec, data, cfg, predictions, counter)
     html += f"""
-<div><b>{strategy_label(strategy)}</b></div>
+<div><b>直接购买号码（{strategy_label(strategy)}）</b></div>
+<div class="today-rec">{_fmt_nums(rec)}</div>
 {reasons_html}
-<div class="tier-box">
-  <div class="tier-line"><span class="tier-label">核心号</span><span>{_fmt_nums(tiers["core"])}</span></div>
-  <div class="tier-line"><span class="tier-label">备选号</span><span>{_fmt_nums(tiers["backup"])}</span></div>
-  <div class="tier-line"><span class="tier-label">观察号</span><span>{_fmt_nums(tiers["watch"])}</span></div>
-</div>
 """
 
     rs = sum(rec)

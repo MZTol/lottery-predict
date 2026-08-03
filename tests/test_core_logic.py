@@ -283,7 +283,7 @@ class CoreLogicTests(unittest.TestCase):
 
         self.assertIn("<details", html)
         self.assertIn("专家外部参考", html)
-        self.assertIn("未参与综合推荐", html)
+        self.assertIn("未参与直接购买号码", html)
         self.assertIn("重合 2 个", html)
 
     def test_saved_recommendation_uses_area_strategy(self):
@@ -438,9 +438,11 @@ class CoreLogicTests(unittest.TestCase):
         html = report._key_summary_section(data, areas, evaluation)
 
         self.assertIn("今日结论", html)
-        self.assertIn("号码综合模型", html)
-        self.assertIn("核心", html)
-        self.assertIn("备选", html)
+        self.assertIn("直接购买号码", html)
+        self.assertIn("综合模型", html)
+        self.assertNotIn("分层", html)
+        self.assertNotIn("核心", html)
+        self.assertNotIn("备选", html)
         self.assertIn("相似", html)
         self.assertIn("遗漏", html)
         self.assertIn("上期", html)
@@ -466,7 +468,7 @@ class CoreLogicTests(unittest.TestCase):
 
         html = report._evaluation_section_html(evaluation)
 
-        self.assertIn("号码最终主推复盘", html)
+        self.assertIn("号码购买结果复盘", html)
         self.assertIn("中 2/3", html)
         self.assertIn("上期预测", html)
         self.assertIn("漏掉", html)
