@@ -4,6 +4,7 @@ import re
 import time
 import urllib.request
 import urllib.error
+from data_quality import DataQualityError, validate_history
 
 BASE_URL = "https://www.917500.cn/win/getlist.html"
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
@@ -131,9 +132,15 @@ def fetch_all(lotid, max_pages=PAGES):
     return all_data
 
 
-def save(data, filename=None):
+def save(data, filename=None, lotid=None):
     if filename is None or not data:
         return
+    if lotid is None:
+        lotid = os.path.basename(filename).replace("_history.json", "")
+    quality = validate_history(data, lotid)
+    if not quality["ok"]:
+        detail = "；".join(quality["errors"][:3])
+        raise DataQualityError(f"拒绝保存无效{lotid}历史数据: {detail}")
     tmp = filename + ".tmp"
     with open(tmp, "w") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)

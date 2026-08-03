@@ -11,6 +11,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import analyzer
+import data_quality
 import prediction_store
 import report
 import review_report
@@ -305,7 +306,9 @@ class CoreLogicTests(unittest.TestCase):
                 {"period": "001", "numbers": ["01", "02", "03"]},
             ]
 
-            saved = prediction_store.save_prediction("kl8", 456, 456, areas, filename=filename, history=history)
+            selection_file = os.path.join(tmpdir, "strategy_selection.json")
+            with patch("strategy.SELECTION_FILE", selection_file):
+                saved = prediction_store.save_prediction("kl8", 456, 456, areas, filename=filename, history=history)
 
         self.assertEqual(saved["areas"]["numbers"]["strategy"], "omission")
         self.assertEqual(saved["areas"]["numbers"]["recommendation"], ["07", "08", "09"])
@@ -337,6 +340,42 @@ class CoreLogicTests(unittest.TestCase):
         self.assertEqual(selected, "model")
         self.assertEqual(len(nums), 5)
         self.assertEqual(nums, [1, 2, 3, 4, 5])
+
+    def test_candidate_models_return_same_pick_count(self):
+        history = [
+            {"period": "003", "numbers": ["01", "04", "07"]},
+            {"period": "002", "numbers": ["02", "05", "08"]},
+            {"period": "001", "numbers": ["03", "06", "09"]},
+        ]
+        cfg = {"field": "numbers", "total": 12, "pick": 3, "zones": 3}
+        candidates = strategy.candidate_recommendations(
+            {"hot": ["01", "02", "03"]},
+            Counter({1: 5, 2: 4, 3: 3}),
+            cfg,
+            history=history,
+        )
+
+        self.assertEqual(
+            set(candidates),
+            {"model", "frequency", "omission", "interval"},
+        )
+        self.assertTrue(all(len(nums) == 3 for nums in candidates.values()))
+
+    def test_history_quality_rejects_invalid_shape_and_accepts_valid_shape(self):
+        valid = [
+            {"period": "003", "numbers": [f"{n:02d}" for n in range(1, 21)]},
+            {"period": "002", "numbers": [f"{n:02d}" for n in range(21, 41)]},
+        ]
+        invalid = [
+            {"period": "003", "numbers": [f"{n:02d}" for n in range(1, 20)] + ["99"]},
+            {"period": "003", "numbers": [f"{n:02d}" for n in range(1, 20)]},
+        ]
+
+        self.assertTrue(data_quality.validate_history(valid, "kl8")["ok"])
+        result = data_quality.validate_history(invalid, "kl8")
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("越界" in message for message in result["errors"]))
+        self.assertTrue(any("重复" in message for message in result["errors"]))
 
     def test_key_summary_section_shows_first_screen_decision_points(self):
         data = [
@@ -513,6 +552,14 @@ class CoreLogicTests(unittest.TestCase):
         rec_rows = [row for row in review["rows"] if row["group"] == "recommendation"]
         self.assertEqual(len(rec_rows), 3)
         self.assertTrue(all(row["source"] == "replay" for row in rec_rows))
+        self.assertEqual(
+            len([row for row in review["rows"] if row["group"] == "model"]),
+            3,
+        )
+        self.assertEqual(
+            len([row for row in review["rows"] if row["group"] == "interval"]),
+            3,
+        )
 
         html = review_report.render_review_html(review)
         self.assertIn("历史回放期数", html)

@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 from collections import Counter
-from strategy import choose_recommendation, strategy_label
+from strategy import ALGORITHM_VERSION, choose_recommendation, strategy_detail, strategy_label
 
 REPORTS_DIR = os.path.join(os.path.dirname(__file__), "reports")
 
@@ -443,7 +443,9 @@ def _prediction_history_comparison(data, field, predictions, counter, pick, peri
         return '<p class="meta">暂无可对比号码。</p>'
 
     cfg = cfg or {"pick": pick, "total": total_n}
-    rec, strategy = choose_recommendation(lotid, field, predictions, counter, cfg, history=data)
+    rec, strategy = choose_recommendation(
+        lotid, field, predictions, counter, cfg, history=data, use_saved_selection=True
+    )
 
     header = "".join(f'<th class="trend-num">{n:02d}</th>' for n in range(1, total_n + 1))
     draw_rows = []
@@ -567,7 +569,10 @@ def _key_summary_section(data, areas, evaluation=None, lotid=None):
     for label, field, predictions, counter, cfg in areas:
         pick = cfg["pick"]
         total_n = cfg["total"]
-        rec, strategy = choose_recommendation(lotid, field, predictions, counter, cfg, history=data)
+        rec, strategy = choose_recommendation(
+            lotid, field, predictions, counter, cfg, history=data, use_saved_selection=True
+        )
+        detail = strategy_detail(lotid, field)
         tiers = _recommendation_tiers(predictions, counter, pick, total_n, rec)
         best = _best_recent_match(data, field, rec, 10)
         omissions = _top_omissions(data, field, total_n, min(5, total_n))
@@ -590,7 +595,7 @@ def _key_summary_section(data, areas, evaluation=None, lotid=None):
   <div class="today-rec">{_fmt_nums(rec)}</div>
   <div class="today-lines">
     <div class="today-line"><b>上期</b><span>{review_html}<br><span class="meta">{review_miss}</span></span></div>
-    <div class="today-line"><b>策略</b><span>{strategy_label(strategy)}，基于100期回放表现选择</span></div>
+    <div class="today-line"><b>策略</b><span>{strategy_label(strategy)}，{detail.get('selection_source', '默认策略')}，信心：{detail.get('confidence', '未开始动态选择')}</span></div>
     <div class="today-line"><b>分层</b><span>核心 {_fmt_nums(tiers["core"])}<br>备选 {_fmt_nums(tiers["backup"])}</span></div>
     <div class="today-line"><b>结构</b><span>和值 {sum(rec)}，奇偶 {sum(1 for n in rec if n % 2 == 1)}:{pick - sum(1 for n in rec if n % 2 == 1)}</span></div>
     <div class="today-line"><b>相似</b><span>{best_html}</span></div>
@@ -873,7 +878,7 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 <html><head><meta charset="utf-8"><title>{lot_name} {next_period}期 预测报告</title>{_style()}</head>
 <body>
 <h1>🎯 {lot_name} {next_period}期 预测报告</h1>
-<p class="meta">生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  seed: {seed}</p>
+<p class="meta">生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  seed: {seed}  |  算法: {ALGORITHM_VERSION}</p>
 <p class="meta">数据: {len(data)} 期历史  |  最新开奖: {latest_draw['period']}期</p>
 {_data_status_section(data_status)}
 """
@@ -919,7 +924,15 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 
     if expert_data:
         recommendations_by_field = {
-            field: choose_recommendation(lotid, field, predictions, counter, cfg, history=data)[0]
+            field: choose_recommendation(
+                lotid,
+                field,
+                predictions,
+                counter,
+                cfg,
+                history=data,
+                use_saved_selection=True,
+            )[0]
             for _, field, predictions, counter, cfg in areas
         }
         for ed in expert_data:
@@ -936,7 +949,9 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
     for label, field, predictions, counter, cfg in areas:
         pick = cfg["pick"]
         total_n = cfg["total"]
-        rec, strategy = choose_recommendation(lotid, field, predictions, counter, cfg, history=data)
+        rec, strategy = choose_recommendation(
+            lotid, field, predictions, counter, cfg, history=data, use_saved_selection=True
+        )
         tiers = _recommendation_tiers(predictions, counter, pick, total_n, rec)
         rs = sum(rec)
         rodd = sum(1 for n in rec if n % 2 == 1)
@@ -996,7 +1011,9 @@ def _build_html(data, latest_draw, predictions, counter, cfg, lotid, next_period
 <h2>⭐ 最终主推</h2>
 <div class="group-box">
 """
-    rec, strategy = choose_recommendation(lotid, field, predictions, counter, cfg, history=data)
+    rec, strategy = choose_recommendation(
+        lotid, field, predictions, counter, cfg, history=data, use_saved_selection=True
+    )
     tiers = _recommendation_tiers(predictions, counter, pick, total_n, rec)
     html += f"""
 <div class="tier-box">

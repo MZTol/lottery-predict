@@ -28,12 +28,22 @@ jobs:
         run: |
           git fetch origin gh-pages --depth=1 || true
           git show origin/gh-pages:predictions_history.json > predictions_history.json 2>/dev/null || true
+          git show origin/gh-pages:strategy_selection.json > strategy_selection.json 2>/dev/null || true
+          git show origin/gh-pages:replay_predictions_cache.json > replay_predictions_cache.json 2>/dev/null || true
           if [ -s predictions_history.json ] && python -m json.tool predictions_history.json >/dev/null 2>&1; then
             echo "已恢复 predictions_history.json"
           else
             rm -f predictions_history.json
             echo "未找到历史预测文件，将从本次运行开始记录"
           fi
+          for file in strategy_selection.json replay_predictions_cache.json; do
+            if [ -s "$file" ] && python -m json.tool "$file" >/dev/null 2>&1; then
+              echo "已恢复 $file"
+            else
+              rm -f "$file"
+              echo "未恢复 $file，将重新生成"
+            fi
+          done
 
       - name: 运行预测
         run: |
@@ -47,6 +57,8 @@ jobs:
           mkdir -p /tmp/reports
           cp reports/*.html /tmp/reports/ 2>/dev/null || true
           cp predictions_history.json /tmp/reports/ 2>/dev/null || true
+          cp strategy_selection.json /tmp/reports/ 2>/dev/null || true
+          cp replay_predictions_cache.json /tmp/reports/ 2>/dev/null || true
 
           report_count=$(find /tmp/reports -maxdepth 1 -name '*.html' ! -name 'index.html' | wc -l)
           if [ "$report_count" -eq 0 ]; then
@@ -73,6 +85,8 @@ jobs:
           # 复制新报告
           cp /tmp/reports/*.html .
           cp /tmp/reports/predictions_history.json . 2>/dev/null || true
+          cp /tmp/reports/strategy_selection.json . 2>/dev/null || true
+          cp /tmp/reports/replay_predictions_cache.json . 2>/dev/null || true
 
           git add .
           if git diff --cached --quiet; then

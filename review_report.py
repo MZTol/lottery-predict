@@ -7,7 +7,14 @@ from datetime import datetime
 from prediction_store import PREDICTIONS_FILE
 from report import REPORTS_DIR
 from analyzer import CONFIGS, generate_prediction_groups
-from strategy import choose_recommendation, strategy_label
+from strategy import (
+    ALGORITHM_VERSION,
+    AREA_STRATEGIES,
+    candidate_recommendations,
+    choose_recommendation,
+    save_strategy_selection,
+    strategy_label,
+)
 
 
 DIR = os.path.dirname(__file__)
@@ -31,22 +38,34 @@ GROUP_LABELS = {
     "kill_b": "中间候选B",
     "kill_c": "中间候选C",
     "recommendation": "最终主推",
+    "model": "综合模型",
     "baseline_frequency": "近期高频",
     "baseline_omission": "当前遗漏",
+    "interval": "区间模型",
     "expert_consensus": "专家共识",
 }
 
-PRIMARY_GROUPS = ("recommendation", "baseline_frequency", "baseline_omission", "expert_consensus")
+PRIMARY_GROUPS = (
+    "recommendation",
+    "model",
+    "baseline_frequency",
+    "baseline_omission",
+    "interval",
+    "expert_consensus",
+)
 REPLAY_TARGET_PERIODS = 100
 REPLAY_MIN_TRAIN = 20
 REPLAY_CACHE_FILE = os.path.join(DIR, "replay_predictions_cache.json")
-REPLAY_ALGO_VERSION = "strategy-selected-v2"
+REPLAY_ALGO_VERSION = "strategy-selected-v3"
 
 
 def _load_json(filename, default):
     if os.path.exists(filename):
-        with open(filename) as f:
-            return json.load(f)
+        try:
+            with open(filename) as f:
+                return json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return default
     return default
 
 
@@ -185,6 +204,7 @@ def _empty_summaries():
         "count": 0,
         "hits": 0.0,
         "expected": 0.0,
+        "delta_sq": 0.0,
         "better": 0,
         "equal": 0,
         "worse": 0,
@@ -206,6 +226,7 @@ def _add_comparison(
     summary["count"] += 1
     summary["hits"] += cmp["hit_count"]
     summary["expected"] += cmp["expected"]
+    summary["delta_sq"] += delta * delta
     summary["better"] += 1 if better else 0
     summary["equal"] += 1 if not better and not worse else 0
     summary["worse"] += 1 if worse else 0
@@ -299,6 +320,10 @@ def _cache_entry_valid(entry, cfg):
         and entry.get("recommendation")
         and len(entry.get("recommendation", [])) == int(cfg["pick"])
         and entry.get("strategy")
+        and all(
+            len(entry.get("candidates", {}).get(name, [])) == int(cfg["pick"])
+            for name in ("model", "frequency", "omission", "interval")
+        )
     )
 
 
@@ -307,7 +332,9 @@ def _cached_replay_prediction(cache, lotid, period, field, cfg):
     return entry if _cache_entry_valid(entry, cfg) else None
 
 
-def _store_replay_prediction(cache, lotid, period, field, cfg, recommendation, strategy, meta):
+def _store_replay_prediction(
+    cache, lotid, period, field, cfg, recommendation, strategy, candidates, meta
+):
     if cache is None:
         return
     cache.setdefault(lotid, {}).setdefault(str(period), {})[field] = {
@@ -317,6 +344,10 @@ def _store_replay_prediction(cache, lotid, period, field, cfg, recommendation, s
         "recommendation": [str(n).zfill(2) for n in recommendation],
         "strategy": strategy,
         "strategy_label": strategy_label(strategy),
+        "candidates": {
+            name: [str(n).zfill(2) for n in nums]
+            for name, nums in candidates.items()
+        },
         "best_window": meta.get("best_window"),
         "model_window": meta.get("model_window"),
         "sample_count": meta.get("sample_count"),
@@ -326,11 +357,11 @@ def _store_replay_prediction(cache, lotid, period, field, cfg, recommendation, s
 def _add_replay_rows(lotid, history, records, rows, summaries, target_periods=REPLAY_TARGET_PERIODS, replay_cache=None):
     saved_count = _saved_recommendation_period_count(rows)
     if saved_count >= target_periods:
-        return 0
+        return 0, False
 
     configs = _review_area_configs(lotid, records)
     if not configs:
-        return 0
+        return 0, False
 
     saved_periods = {
         row["period"]
@@ -355,15 +386,35 @@ def _add_replay_rows(lotid, history, records, rows, summaries, target_periods=RE
                 recommendation = cached["recommendation"]
                 strategy = cached.get("strategy")
                 replay_strategy_text = cached.get("strategy_label") or cached.get("strategy")
+                candidates = cached["candidates"]
                 generated_at = f"历史回放缓存，{replay_strategy_text}，窗口{cached.get('best_window')}"
             else:
                 predictions, counter, meta = generate_prediction_groups(
                     train, cfg, int(actual_draw["period"])
                 )
-                recommendation, strategy = choose_recommendation(
-                    lotid, field, predictions, counter, cfg, history=train
+                candidates = candidate_recommendations(
+                    predictions, counter, cfg, history=train
                 )
-                _store_replay_prediction(replay_cache, lotid, period, field, cfg, recommendation, strategy, meta)
+                recommendation, strategy = choose_recommendation(
+                    lotid,
+                    field,
+                    predictions,
+                    counter,
+                    cfg,
+                    history=train,
+                    use_saved_selection=False,
+                )
+                _store_replay_prediction(
+                    replay_cache,
+                    lotid,
+                    period,
+                    field,
+                    cfg,
+                    recommendation,
+                    strategy,
+                    candidates,
+                    meta,
+                )
                 cache_dirty = cache_dirty or replay_cache is not None
                 replay_strategy_text = strategy_label(strategy)
                 generated_at = f"历史回放，{replay_strategy_text}，训练{len(train)}期，窗口{meta.get('best_window')}"
@@ -372,8 +423,10 @@ def _add_replay_rows(lotid, history, records, rows, summaries, target_periods=RE
             pick = int(cfg["pick"])
             groups = {
                 "recommendation": recommendation,
-                "baseline_frequency": _baseline_frequency(train, field, total, pick),
-                "baseline_omission": _baseline_omission(train, field, total, pick),
+                "model": candidates["model"],
+                "baseline_frequency": candidates["frequency"],
+                "baseline_omission": candidates["omission"],
+                "interval": candidates["interval"],
             }
             for group_name, predicted in groups.items():
                 _add_comparison(
@@ -395,6 +448,99 @@ def _verdict(count, delta):
     if delta <= -0.08:
         return "弱于随机", "verdict-bad", "当前平均命中低于随机基线"
     return "接近随机", "verdict-flat", "和随机基线差距很小"
+
+
+def _confidence(summary):
+    count = int(summary.get("count", 0))
+    if count < 30:
+        return "样本不足", None
+    avg_delta = (summary.get("hits", 0.0) - summary.get("expected", 0.0)) / count
+    variance = max(
+        0.0,
+        summary.get("delta_sq", 0.0) / count - avg_delta * avg_delta,
+    )
+    standard_error = (variance / count) ** 0.5
+    if standard_error == 0:
+        return ("较强" if avg_delta > 0 else "较弱" if avg_delta < 0 else "未证实"), 0.0
+    z_score = avg_delta / standard_error
+    if abs(z_score) < 1.96:
+        return "未证实", z_score
+    return ("较强" if z_score > 0 else "较弱"), z_score
+
+
+def _selection_stats(summary):
+    count = int(summary.get("count", 0))
+    avg_hits = summary.get("hits", 0.0) / count if count else 0.0
+    avg_expected = summary.get("expected", 0.0) / count if count else 0.0
+    confidence, z_score = _confidence(summary)
+    return {
+        "sample_count": count,
+        "average_hits": round(avg_hits, 4),
+        "random_baseline": round(avg_expected, 4),
+        "delta": round(avg_hits - avg_expected, 4),
+        "confidence": confidence,
+        "z_score": round(z_score, 3) if z_score is not None else None,
+    }
+
+
+def _update_strategy_selection(lotid, records, summaries):
+    selection = {
+        "version": ALGORITHM_VERSION,
+        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        lotid: {},
+    }
+    candidate_groups = {
+        "model": "model",
+        "frequency": "baseline_frequency",
+        "omission": "baseline_omission",
+        "interval": "interval",
+    }
+
+    for label, field, cfg in _review_area_configs(lotid, records):
+        default_strategy = AREA_STRATEGIES.get((lotid, field), "model")
+        stats = {}
+        for strategy, group_name in candidate_groups.items():
+            summary = summaries.get((label, group_name))
+            if summary and summary.get("count"):
+                stats[strategy] = _selection_stats(summary)
+
+        selected = default_strategy
+        default_stats = stats.get(default_strategy)
+        eligible = {
+            strategy: item
+            for strategy, item in stats.items()
+            if item["sample_count"] >= 30
+        }
+        if eligible:
+            best_strategy, best_stats = max(
+                eligible.items(),
+                key=lambda item: (item[1]["delta"], item[1]["average_hits"]),
+            )
+            default_delta = default_stats["delta"] if default_stats else 0.0
+            if (
+                best_stats["delta"] >= 0.05
+                and best_stats["delta"] >= default_delta + 0.05
+            ):
+                selected = best_strategy
+
+        selected_stats = stats.get(selected, {
+            "sample_count": 0,
+            "average_hits": 0.0,
+            "random_baseline": 0.0,
+            "delta": 0.0,
+            "confidence": "样本不足",
+            "z_score": None,
+        })
+        selection[lotid][field] = {
+            "selected_strategy": selected,
+            "strategy_label": strategy_label(selected),
+            "selection_source": "100期回放动态选择",
+            "sample_count": selected_stats["sample_count"],
+            "confidence": selected_stats["confidence"],
+            "selected_stats": selected_stats,
+            "candidates": stats,
+        }
+    return selection
 
 
 def build_review(lotid, prediction_store=None, history=None):
@@ -421,11 +567,19 @@ def build_review(lotid, prediction_store=None, history=None):
             total = int(area.get("total", max(actual) if actual else 0))
             pick = int(area.get("pick") or len(area.get("recommendation", [])) or len(actual))
             groups = dict(area.get("predictions", {}))
+            if area.get("model_recommendation"):
+                groups["model"] = area["model_recommendation"]
             if area.get("recommendation"):
                 groups["recommendation"] = area["recommendation"]
             if train:
                 groups["baseline_frequency"] = _baseline_frequency(train, field, total, pick)
                 groups["baseline_omission"] = _baseline_omission(train, field, total, pick)
+                groups["interval"] = candidate_recommendations(
+                    {},
+                    {},
+                    {"field": field, "total": total, "pick": pick, "zones": 4},
+                    history=train,
+                )["interval"]
             if area.get("expert_consensus"):
                 groups["expert_consensus"] = area["expert_consensus"]
 
@@ -447,7 +601,7 @@ def build_review(lotid, prediction_store=None, history=None):
 
     rows.sort(key=lambda row: (_num_key(row["period"]), 0 if row.get("source") == "saved" else -1), reverse=True)
 
-    return {
+    result = {
         "lotid": lotid,
         "label": LOTTERY_LABELS.get(lotid, lotid),
         "rows": rows,
@@ -455,6 +609,10 @@ def build_review(lotid, prediction_store=None, history=None):
         "replay_periods": replay_periods,
         "saved_periods": _saved_recommendation_period_count(rows),
     }
+    if not external_inputs:
+        result["strategy_selection"] = _update_strategy_selection(lotid, records, summaries)
+        save_strategy_selection(result["strategy_selection"])
+    return result
 
 
 def _summary_table(review):
@@ -468,6 +626,8 @@ def _summary_table(review):
         delta = avg_hits - avg_expected
         lower_is_better = False
         cls = _baseline_class(delta, lower_is_better)
+        confidence, z_score = _confidence(summary)
+        confidence_text = confidence + (f" z={z_score:.2f}" if z_score is not None else "")
         best = summary["best"]
         worst = summary["worst"]
         rows.append(
@@ -478,6 +638,7 @@ def _summary_table(review):
             + _td("平均撞号", f"{avg_hits:.2f}")
             + _td("随机基线", f"{avg_expected:.2f}")
             + _td("差值", f'<span class="{cls}">{delta:+.2f}</span>')
+            + _td("信心", confidence_text)
             + _td("优于随机", summary["better"])
             + _td("持平", summary["equal"])
             + _td("差于随机", summary["worse"])
@@ -491,7 +652,7 @@ def _summary_table(review):
 <div class="table-wrap mobile-cards">
 <table>
   <thead>
-    <tr><th>区域</th><th>类型</th><th>期数</th><th>平均撞号</th><th>随机基线</th><th>差值</th><th>优于随机</th><th>持平</th><th>差于随机</th><th>最好一期</th><th>最差一期</th></tr>
+    <tr><th>区域</th><th>类型</th><th>期数</th><th>平均撞号</th><th>随机基线</th><th>差值</th><th>信心</th><th>优于随机</th><th>持平</th><th>差于随机</th><th>最好一期</th><th>最差一期</th></tr>
   </thead>
   <tbody>{''.join(rows)}</tbody>
 </table>
@@ -509,6 +670,8 @@ def _effectiveness_cards(review):
         avg_expected = summary["expected"] / count if count else 0.0
         delta = avg_hits - avg_expected
         text, cls, note = _verdict(count, delta)
+        confidence, z_score = _confidence(summary)
+        confidence_note = f"{confidence}" + (f"（z={z_score:.2f}）" if z_score is not None else "")
         cards.append(f"""
 <div class="plain-card">
   <div class="plain-head">
@@ -522,6 +685,7 @@ def _effectiveness_cards(review):
     <div class="plain-line"><b>随机</b><span>约 {avg_expected:.2f} 个</span></div>
     <div class="plain-line"><b>差值</b><span class="{_baseline_class(delta)}">{delta:+.2f}</span></div>
     <div class="plain-line"><b>判断</b><span>{note}</span></div>
+    <div class="plain-line"><b>信心</b><span>{confidence_note}</span></div>
   </div>
 </div>
 """)
@@ -550,6 +714,7 @@ def _model_comparison(review):
                 + _td("平均命中", f"{avg_expected:.2f}")
                 + _td("随机基线", f"{avg_expected:.2f}")
                 + _td("差值", '<span class="flat">+0.00</span>')
+                + _td("信心", "-")
                 + _td("结论", '<span class="verdict verdict-flat">基准</span>')
                 + "</tr>"
             )
@@ -563,6 +728,8 @@ def _model_comparison(review):
             avg_expected = summary["expected"] / count if count else 0.0
             delta = avg_hits - avg_expected
             text, cls, _ = _verdict(count, delta)
+            confidence, z_score = _confidence(summary)
+            confidence_text = confidence + (f" z={z_score:.2f}" if z_score is not None else "")
             rows.append(
                 "<tr>"
                 + _td("区域", area)
@@ -571,6 +738,7 @@ def _model_comparison(review):
                 + _td("平均命中", f"{avg_hits:.2f}")
                 + _td("随机基线", f"{avg_expected:.2f}")
                 + _td("差值", f'<span class="{_baseline_class(delta)}">{delta:+.2f}</span>')
+                + _td("信心", confidence_text)
                 + _td("结论", f'<span class="verdict {cls}">{text}</span>')
                 + "</tr>"
             )
@@ -581,7 +749,7 @@ def _model_comparison(review):
 <div class="table-wrap mobile-cards">
 <table>
   <thead>
-    <tr><th>区域</th><th>模型</th><th>期数</th><th>平均命中</th><th>随机基线</th><th>差值</th><th>结论</th></tr>
+    <tr><th>区域</th><th>模型</th><th>期数</th><th>平均命中</th><th>随机基线</th><th>差值</th><th>信心</th><th>结论</th></tr>
   </thead>
   <tbody>{''.join(rows)}</tbody>
 </table>
@@ -665,6 +833,37 @@ def _detail_table(review, limit=80):
 """
 
 
+def _strategy_selection_html(review):
+    selection = review.get("strategy_selection", {})
+    lotid = review.get("lotid")
+    selected = selection.get(lotid, {}) if isinstance(selection, dict) else {}
+    if not selected:
+        return '<p class="meta">本次为测试数据或尚未完成动态策略选择。</p>'
+
+    cards = []
+    for field, item in selected.items():
+        candidates = item.get("candidates", {})
+        candidate_text = "；".join(
+            f"{strategy_label(name)} {stats.get('delta', 0):+.2f}"
+            for name, stats in candidates.items()
+        )
+        cards.append(f"""
+<div class="plain-card">
+  <div class="plain-head">
+    <div class="plain-title">{field}下一期策略：{item.get('strategy_label', '综合模型')}</div>
+    <span class="verdict verdict-flat">{item.get('confidence', '样本不足')}</span>
+  </div>
+  <div class="plain-lines">
+    <div class="plain-line"><b>选择依据</b><span>{item.get('selection_source', '回放')}</span></div>
+    <div class="plain-line"><b>样本</b><span>{item.get('sample_count', 0)}期</span></div>
+    <div class="plain-line"><b>候选差值</b><span>{candidate_text or '暂无'}</span></div>
+    <div class="plain-line"><b>规则</b><span>只有相对默认策略至少高出0.05，才会切换。</span></div>
+  </div>
+</div>
+""")
+    return f'<div class="plain-grid">{"".join(cards)}</div>'
+
+
 def render_review_html(review):
     total_periods = len({row["period"] for row in review["rows"]})
     total_rows = len(review["rows"])
@@ -686,6 +885,10 @@ def render_review_html(review):
   <section class="section">
     <h2>先看结论：模型是否有效</h2>
     {_effectiveness_cards(review)}
+  </section>
+  <section class="section">
+    <h2>下一期策略选择</h2>
+    {_strategy_selection_html(review)}
   </section>
   <section class="section">
     <h2>模型对比</h2>

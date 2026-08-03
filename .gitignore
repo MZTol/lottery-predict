@@ -1,3 +1,4 @@
 *.json
 !replay_predictions_cache.json
+!strategy_selection.json
 reports/*.html

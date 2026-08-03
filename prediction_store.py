@@ -3,7 +3,13 @@ import os
 from collections import Counter
 from datetime import datetime
 from json import JSONDecodeError
-from strategy import choose_recommendation, strategy_label
+from strategy import (
+    ALGORITHM_VERSION,
+    choose_recommendation,
+    model_recommendation,
+    strategy_detail,
+    strategy_label,
+)
 
 
 DIR = os.path.dirname(__file__)
@@ -69,6 +75,9 @@ def save_prediction(lotid, period, seed, areas, filename=PREDICTIONS_FILE, exper
         "period": period_key,
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "seed": seed,
+        "algorithm_version": ALGORITHM_VERSION,
+        "data_latest_period": str(history[0].get("period")) if history else "",
+        "training_periods": len(history or []),
         "areas": {},
     }
 
@@ -87,11 +96,26 @@ def save_prediction(lotid, period, seed, areas, filename=PREDICTIONS_FILE, exper
             "predictions": clean_predictions,
         }
         rec, strategy = choose_recommendation(
-            lotid, field, clean_predictions, counter, cfg, history=history
+            lotid,
+            field,
+            clean_predictions,
+            counter,
+            cfg,
+            history=history,
+            use_saved_selection=True,
         )
         area_record["recommendation"] = [f"{int(n):02d}" for n in rec]
+        area_record["model_recommendation"] = [
+            f"{int(n):02d}"
+            for n in model_recommendation(clean_predictions, counter, pick, int(cfg["total"]))
+        ]
         area_record["strategy"] = strategy
         area_record["strategy_label"] = strategy_label(strategy)
+        detail = strategy_detail(lotid, field)
+        area_record["strategy_confidence"] = detail.get("confidence", "未开始动态选择")
+        area_record["strategy_selection_source"] = detail.get(
+            "selection_source", "默认策略"
+        )
         expert_consensus = _expert_consensus(expert_data, field, pick)
         if expert_consensus:
             area_record["expert_consensus"] = expert_consensus

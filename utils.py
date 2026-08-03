@@ -3,6 +3,7 @@ import os
 import random
 from collections import Counter
 from datetime import datetime, timedelta
+from data_quality import DataQualityError, load_history
 
 
 def weighted_sample(weights, k, seed, cooccur=None, cooccur_factor=0.4):
@@ -100,19 +101,32 @@ def data_status(filepath, lotid, data=None, max_age_hours=1):
 def ensure_fresh(filepath, lotid, max_age_hours=1):
     from crawler import fetch_incremental, fetch_all, save
 
+    stale = None
     if os.path.exists(filepath):
-        with open(filepath) as f:
-            stale = json.load(f)
-        mtime = datetime.fromtimestamp(os.path.getmtime(filepath))
-        age = (datetime.now() - mtime).total_seconds() / 3600
-        print(f"  缓存 {os.path.basename(filepath)}: {len(stale)}期, {age:.1f}小时前保存")
-        if is_data_fresh(filepath, lotid, max_age_hours) and stale:
-            return stale
-        print(f"  增量更新 {lotid}...")
         try:
-            data = fetch_incremental(lotid, filepath)
+            stale, quality = load_history(filepath, lotid)
+            mtime = datetime.fromtimestamp(os.path.getmtime(filepath))
+            age = (datetime.now() - mtime).total_seconds() / 3600
+            print(
+                f"  缓存 {os.path.basename(filepath)}: {len(stale)}期, "
+                f"{age:.1f}小时前保存"
+            )
+            if quality["warnings"]:
+                print(f"  数据警告: {quality['warnings'][0]}")
+            if is_data_fresh(filepath, lotid, max_age_hours) and stale:
+                return stale
+        except DataQualityError as exc:
+            print(f"  缓存数据无效: {exc}")
+            print("  将忽略损坏缓存，成功拉取后再覆盖")
+
+        if stale is not None:
+            print(f"  增量更新 {lotid}...")
+        else:
+            print(f"  全量更新 {lotid}...")
+        try:
+            data = fetch_incremental(lotid, filepath) if stale is not None else fetch_all(lotid)
             if data:
-                save(data, filepath)
+                save(data, filepath, lotid=lotid)
             return data or stale
         except Exception as e:
             print(f"  增量拉取失败: {e}")
