@@ -64,6 +64,6 @@ if __name__ == "__main__":
         evaluation=evaluation,
         data_status=status,
     )
-    save_prediction(LOTID, next_period, next_seed, areas, expert_data=expert_data or None)
+    save_prediction(LOTID, next_period, next_seed, areas, expert_data=expert_data or None, history=data)
     print(f"  已保存 {next_period}期预测记录")
     print(f"  总采样: {model_meta['sample_count']} 次")

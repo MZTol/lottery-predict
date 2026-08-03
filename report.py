@@ -1,6 +1,7 @@
 import os
 from datetime import datetime
 from collections import Counter
+from strategy import choose_recommendation, strategy_label
 
 REPORTS_DIR = os.path.join(os.path.dirname(__file__), "reports")
 
@@ -361,7 +362,7 @@ def _predictions_table(predictions, counters, actual_set):
     return f"""
 <details class="source-details">
   <summary>推荐来源参考（默认折叠）</summary>
-  <p class="source-note">这里只解释五组候选来源；综合推荐仍以采样频次最高的号码为主。</p>
+  <p class="source-note">这里只解释五组候选来源；最终主推会按当前彩种策略从综合模型、近期高频或当前遗漏中选择。</p>
   {_source_explanation_section(predictions, Counter())}
 </details>
 """
@@ -436,12 +437,13 @@ def _manual_trend_row(total_n):
     return f'<tr><th class="trend-label">自选号码<br><span class="meta" data-manual-count>0个</span></th>{cells}</tr>'
 
 
-def _prediction_history_comparison(data, field, predictions, counter, pick, periods=10, total_n=None):
+def _prediction_history_comparison(data, field, predictions, counter, pick, periods=10, total_n=None, lotid=None, cfg=None):
     total_n = _trend_total_n(data, field, predictions, total_n)
     if not total_n:
         return '<p class="meta">暂无可对比号码。</p>'
 
-    rec = _recommendation(predictions, counter, pick)
+    cfg = cfg or {"pick": pick, "total": total_n}
+    rec, strategy = choose_recommendation(lotid, field, predictions, counter, cfg, history=data)
 
     header = "".join(f'<th class="trend-num">{n:02d}</th>' for n in range(1, total_n + 1))
     draw_rows = []
@@ -449,14 +451,14 @@ def _prediction_history_comparison(data, field, predictions, counter, pick, peri
     for entry in reversed(data[:periods]):
         actual = sorted(int(n) for n in entry[field])
         hits = len(set(actual) & rec_set)
-        draw_rows.append(_trend_row(str(entry["period"]), actual, total_n, "trend-draw", f"综合中{hits}"))
+        draw_rows.append(_trend_row(str(entry["period"]), actual, total_n, "trend-draw", f"主推中{hits}"))
 
-    prediction_rows = [_trend_row("综合推荐", rec, total_n, "trend-rec")]
+    prediction_rows = [_trend_row(strategy_label(strategy), rec, total_n, "trend-rec")]
 
     return f"""
 <div class="trend-legend">
   <span><i class="trend-dot draw"></i>期开奖</span>
-  <span><i class="trend-dot pred"></i>综合推荐</span>
+  <span><i class="trend-dot pred"></i>{strategy_label(strategy)}</span>
   <span><i class="trend-dot manual"></i>自选号码</span>
 </div>
 <div class="trend-wrap" aria-label="预测号码和历史开奖号码号码轴对比">
@@ -467,14 +469,14 @@ def _prediction_history_comparison(data, field, predictions, counter, pick, peri
   <tbody>
     <tr class="trend-section"><th colspan="{total_n + 1}">最近 {min(periods, len(data))} 期开奖</th></tr>
     {''.join(draw_rows)}
-    <tr class="trend-section"><th colspan="{total_n + 1}">本期综合推荐</th></tr>
+    <tr class="trend-section"><th colspan="{total_n + 1}">本期{strategy_label(strategy)}</th></tr>
     {''.join(prediction_rows)}
     <tr class="trend-section"><th colspan="{total_n + 1}">手动选择</th></tr>
     {_manual_trend_row(total_n)}
   </tbody>
 </table>
 </div>
-<p class="meta">同一列代表同一个号码；开奖行左侧“综合中N”表示最终主推与该期开奖号重合数量。自选号码保存在当前浏览器。</p>
+<p class="meta">同一列代表同一个号码；开奖行左侧“主推中N”表示当前策略推荐与该期开奖号重合数量。自选号码保存在当前浏览器。</p>
 """
 
 
@@ -508,11 +510,12 @@ def _recommendation(all_preds, counter, pick):
     return top
 
 
-def _recommendation_tiers(predictions, counter, pick, total_n):
+def _recommendation_tiers(predictions, counter, pick, total_n, rec=None):
     ranked = _ranked_numbers(counter, total_n)
-    rec_set = set(_recommendation(predictions, counter, pick))
+    rec = sorted(int(n) for n in rec) if rec is not None else _recommendation(predictions, counter, pick)
+    rec_set = set(rec)
     rec_ranked = [n for n in ranked if n in rec_set]
-    for n in _recommendation(predictions, counter, pick):
+    for n in rec:
         if n not in rec_ranked:
             rec_ranked.append(n)
 
@@ -558,14 +561,14 @@ def _evaluation_lookup(evaluation):
     return result
 
 
-def _key_summary_section(data, areas, evaluation=None):
+def _key_summary_section(data, areas, evaluation=None, lotid=None):
     eval_by_field = _evaluation_lookup(evaluation)
     cards = []
     for label, field, predictions, counter, cfg in areas:
         pick = cfg["pick"]
         total_n = cfg["total"]
-        rec = _recommendation(predictions, counter, pick)
-        tiers = _recommendation_tiers(predictions, counter, pick, total_n)
+        rec, strategy = choose_recommendation(lotid, field, predictions, counter, cfg, history=data)
+        tiers = _recommendation_tiers(predictions, counter, pick, total_n, rec)
         best = _best_recent_match(data, field, rec, 10)
         omissions = _top_omissions(data, field, total_n, min(5, total_n))
         omit_text = " ".join(f"{n:02d}<span class=\"meta\">({o})</span>" for n, o in omissions)
@@ -581,12 +584,13 @@ def _key_summary_section(data, areas, evaluation=None):
         cards.append(f"""
 <div class="today-card">
   <div class="today-head">
-    <div class="today-title">{label}综合推荐</div>
+    <div class="today-title">{label}{strategy_label(strategy)}</div>
     <div class="today-badge">{pick}/{total_n}</div>
   </div>
   <div class="today-rec">{_fmt_nums(rec)}</div>
   <div class="today-lines">
     <div class="today-line"><b>上期</b><span>{review_html}<br><span class="meta">{review_miss}</span></span></div>
+    <div class="today-line"><b>策略</b><span>{strategy_label(strategy)}，基于100期回放表现选择</span></div>
     <div class="today-line"><b>分层</b><span>核心 {_fmt_nums(tiers["core"])}<br>备选 {_fmt_nums(tiers["backup"])}</span></div>
     <div class="today-line"><b>结构</b><span>和值 {sum(rec)}，奇偶 {sum(1 for n in rec if n % 2 == 1)}:{pick - sum(1 for n in rec if n % 2 == 1)}</span></div>
     <div class="today-line"><b>相似</b><span>{best_html}</span></div>
@@ -766,7 +770,7 @@ GROUP_LABELS = {
     "kill_a": "中间候选A(随机)",
     "kill_b": "中间候选B(高频)",
     "kill_c": "中间候选C(等距)",
-    "recommendation": "综合推荐",
+    "recommendation": "最终主推",
     "expert_consensus": "专家共识",
 }
 
@@ -799,7 +803,7 @@ def _evaluation_section_html(evaluation):
             html += f"""
 <div class="review-card">
   <div class="review-head">
-    <div class="review-title">{area['label']}综合推荐复盘</div>
+    <div class="review-title">{area['label']}最终主推复盘</div>
     <div class="review-score">中 {hit_count}/{predicted_count}</div>
   </div>
   <div class="review-lines">
@@ -874,7 +878,7 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 {_data_status_section(data_status)}
 """
 
-    html += _key_summary_section(data, areas, evaluation)
+    html += _key_summary_section(data, areas, evaluation, lotid)
     html += _evaluation_section_html(evaluation)
 
     for label, field, predictions, counter, cfg in areas:
@@ -888,7 +892,7 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 <p class="meta">总采样: {sum(counter.values())} 次</p>
 
 <h3>🔎 本期预测 vs 最近10期开奖</h3>
-{_prediction_history_comparison(data, field, predictions, counter, pick, 10, total_n)}
+{_prediction_history_comparison(data, field, predictions, counter, pick, 10, total_n, lotid, cfg)}
 
 <h3>📊 最近10期走势</h3>
 <div class="matrix">{_history_matrix(data, field, total_n, 10)}</div>
@@ -915,7 +919,7 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 
     if expert_data:
         recommendations_by_field = {
-            field: _recommendation(predictions, counter, cfg["pick"])
+            field: choose_recommendation(lotid, field, predictions, counter, cfg, history=data)[0]
             for _, field, predictions, counter, cfg in areas
         }
         for ed in expert_data:
@@ -932,14 +936,14 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
     for label, field, predictions, counter, cfg in areas:
         pick = cfg["pick"]
         total_n = cfg["total"]
-        rec = _recommendation(predictions, counter, pick)
-        tiers = _recommendation_tiers(predictions, counter, pick, total_n)
+        rec, strategy = choose_recommendation(lotid, field, predictions, counter, cfg, history=data)
+        tiers = _recommendation_tiers(predictions, counter, pick, total_n, rec)
         rs = sum(rec)
         rodd = sum(1 for n in rec if n % 2 == 1)
         rspan = max(rec) - min(rec)
         html += f"""
 <div class="group-box" style="flex:1;min-width:250px">
-<div><b>{label}最终主推</b></div>
+<div><b>{label}最终主推（{strategy_label(strategy)}）</b></div>
 <div class="tier-box">
   <div class="tier-line"><span class="tier-label">核心号</span><span>{_fmt_nums(tiers["core"])}</span></div>
   <div class="tier-line"><span class="tier-label">备选号</span><span>{_fmt_nums(tiers["backup"])}</span></div>
@@ -972,10 +976,10 @@ def _build_html(data, latest_draw, predictions, counter, cfg, lotid, next_period
 <p class="meta">数据: {len(data)} 期历史  |  选号: {pick}/{total_n}  |  最新开奖: {latest_draw['period']}期</p>
 {_data_status_section(data_status)}
 
-{_key_summary_section(data, [(label or "号码", field, predictions, counter, cfg)], None)}
+{_key_summary_section(data, [(label or "号码", field, predictions, counter, cfg)], None, lotid)}
 
 <h2>🔎 本期预测 vs 最近10期开奖</h2>
-{_prediction_history_comparison(data, field, predictions, counter, pick, 10, total_n)}
+{_prediction_history_comparison(data, field, predictions, counter, pick, 10, total_n, lotid, cfg)}
 
 <h2>📊 最近10期走势</h2>
 <div class="matrix">{_history_matrix(data, field, total_n, 10)}</div>
@@ -992,8 +996,8 @@ def _build_html(data, latest_draw, predictions, counter, cfg, lotid, next_period
 <h2>⭐ 最终主推</h2>
 <div class="group-box">
 """
-    rec = _recommendation(predictions, counter, pick)
-    tiers = _recommendation_tiers(predictions, counter, pick, total_n)
+    rec, strategy = choose_recommendation(lotid, field, predictions, counter, cfg, history=data)
+    tiers = _recommendation_tiers(predictions, counter, pick, total_n, rec)
     html += f"""
 <div class="tier-box">
   <div class="tier-line"><span class="tier-label">核心号</span><span>{_fmt_nums(tiers["core"])}</span></div>

@@ -6,6 +6,8 @@ from datetime import datetime
 
 from prediction_store import PREDICTIONS_FILE
 from report import REPORTS_DIR
+from analyzer import CONFIGS, generate_prediction_groups
+from strategy import choose_recommendation, strategy_label
 
 
 DIR = os.path.dirname(__file__)
@@ -28,13 +30,17 @@ GROUP_LABELS = {
     "kill_a": "中间候选A",
     "kill_b": "中间候选B",
     "kill_c": "中间候选C",
-    "recommendation": "综合推荐",
+    "recommendation": "最终主推",
     "baseline_frequency": "近期高频",
     "baseline_omission": "当前遗漏",
     "expert_consensus": "专家共识",
 }
 
 PRIMARY_GROUPS = ("recommendation", "baseline_frequency", "baseline_omission", "expert_consensus")
+REPLAY_TARGET_PERIODS = 100
+REPLAY_MIN_TRAIN = 20
+REPLAY_CACHE_FILE = os.path.join(DIR, "replay_predictions_cache.json")
+REPLAY_ALGO_VERSION = "strategy-selected-v2"
 
 
 def _load_json(filename, default):
@@ -42,6 +48,13 @@ def _load_json(filename, default):
         with open(filename) as f:
             return json.load(f)
     return default
+
+
+def _save_json(filename, data):
+    tmp = filename + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, filename)
 
 
 def _fmt_nums(nums):
@@ -133,6 +146,22 @@ def _baseline_class(delta, lower_is_better=False):
     return "good" if better else "bad"
 
 
+def _source_label(source):
+    return "真实预测" if source == "saved" else "历史回放" if source == "replay" else source
+
+
+def _source_summary(summary):
+    sources = summary.get("sources", {})
+    saved = sources.get("saved", 0)
+    replay = sources.get("replay", 0)
+    parts = []
+    if saved:
+        parts.append(f"真实{saved}")
+    if replay:
+        parts.append(f"回放{replay}")
+    return "，".join(parts) if parts else "无"
+
+
 def _compare_group(group_name, predicted, actual, total):
     predicted_set = {int(n) for n in predicted}
     actual_set = {int(n) for n in actual}
@@ -149,6 +178,64 @@ def _compare_group(group_name, predicted, actual, total):
         "misses": sorted(predicted_set - actual_set),
         "uncovered": sorted(actual_set - predicted_set),
     }
+
+
+def _empty_summaries():
+    return defaultdict(lambda: {
+        "count": 0,
+        "hits": 0.0,
+        "expected": 0.0,
+        "better": 0,
+        "equal": 0,
+        "worse": 0,
+        "best": None,
+        "worst": None,
+    })
+
+
+def _add_comparison(
+    rows, summaries, period, generated_at, area_label, group_name,
+    predicted, actual, total, source="saved", strategy=None, strategy_text=None
+):
+    cmp = _compare_group(group_name, predicted, actual, total)
+    delta = cmp["delta"]
+    better = delta > 0.001
+    worse = delta < -0.001
+    key = (area_label, group_name)
+    summary = summaries[key]
+    summary["count"] += 1
+    summary["hits"] += cmp["hit_count"]
+    summary["expected"] += cmp["expected"]
+    summary["better"] += 1 if better else 0
+    summary["equal"] += 1 if not better and not worse else 0
+    summary["worse"] += 1 if worse else 0
+    if "sources" not in summary:
+        summary["sources"] = defaultdict(int)
+    summary["sources"][source] += 1
+    best_value = cmp["hit_count"]
+    worst_value = -cmp["hit_count"]
+    if summary["best"] is None or best_value > summary["best"][0]:
+        summary["best"] = (best_value, period, cmp["hit_count"], cmp["hits"])
+    if summary["worst"] is None or worst_value > summary["worst"][0]:
+        summary["worst"] = (worst_value, period, cmp["hit_count"], cmp["hits"])
+
+    rows.append({
+        "period": str(period),
+        "generated_at": generated_at,
+        "area": area_label,
+        "group": group_name,
+        "source": source,
+        "strategy": strategy,
+        "strategy_text": strategy_text,
+        "actual": cmp["actual"],
+        "predicted": cmp["predicted"],
+        "hits": cmp["hits"],
+        "hit_count": cmp["hit_count"],
+        "expected": cmp["expected"],
+        "delta": cmp["delta"],
+        "misses": cmp["misses"],
+        "uncovered": cmp["uncovered"],
+    })
 
 
 def _baseline_frequency(train, field, total, pick):
@@ -173,6 +260,131 @@ def _baseline_omission(train, field, total, pick):
     return ranked[:pick]
 
 
+def _review_area_configs(lotid, records):
+    if lotid == "kl8":
+        pick = 10
+        for record in records.values():
+            area = record.get("areas", {}).get("numbers")
+            if area and area.get("pick"):
+                pick = int(area["pick"])
+                break
+        return [("号码", "numbers", {**CONFIGS["kl8"], "pick": pick, "field": "numbers"})]
+    if lotid == "dlt":
+        return [
+            ("前区", "front", {**CONFIGS["dlt_front"], "field": "front"}),
+            ("后区", "back", {**CONFIGS["dlt_back"], "field": "back"}),
+        ]
+    if lotid == "ssq":
+        return [
+            ("红球", "front", {**CONFIGS["ssq_front"], "field": "front"}),
+            ("蓝球", "back", {**CONFIGS["ssq_back"], "field": "back"}),
+        ]
+    return []
+
+
+def _saved_recommendation_period_count(rows):
+    return len({
+        row["period"]
+        for row in rows
+        if row["group"] == "recommendation" and row.get("source") == "saved"
+    })
+
+
+def _cache_entry_valid(entry, cfg):
+    return (
+        entry
+        and entry.get("version") == REPLAY_ALGO_VERSION
+        and int(entry.get("pick", 0)) == int(cfg["pick"])
+        and int(entry.get("total", 0)) == int(cfg["total"])
+        and entry.get("recommendation")
+        and len(entry.get("recommendation", [])) == int(cfg["pick"])
+        and entry.get("strategy")
+    )
+
+
+def _cached_replay_prediction(cache, lotid, period, field, cfg):
+    entry = cache.get(lotid, {}).get(str(period), {}).get(field) if cache is not None else None
+    return entry if _cache_entry_valid(entry, cfg) else None
+
+
+def _store_replay_prediction(cache, lotid, period, field, cfg, recommendation, strategy, meta):
+    if cache is None:
+        return
+    cache.setdefault(lotid, {}).setdefault(str(period), {})[field] = {
+        "version": REPLAY_ALGO_VERSION,
+        "pick": int(cfg["pick"]),
+        "total": int(cfg["total"]),
+        "recommendation": [str(n).zfill(2) for n in recommendation],
+        "strategy": strategy,
+        "strategy_label": strategy_label(strategy),
+        "best_window": meta.get("best_window"),
+        "model_window": meta.get("model_window"),
+        "sample_count": meta.get("sample_count"),
+    }
+
+
+def _add_replay_rows(lotid, history, records, rows, summaries, target_periods=REPLAY_TARGET_PERIODS, replay_cache=None):
+    saved_count = _saved_recommendation_period_count(rows)
+    if saved_count >= target_periods:
+        return 0
+
+    configs = _review_area_configs(lotid, records)
+    if not configs:
+        return 0
+
+    saved_periods = {
+        row["period"]
+        for row in rows
+        if row["group"] == "recommendation" and row.get("source") == "saved"
+    }
+    replay_periods = 0
+    cache_dirty = False
+    for idx, actual_draw in enumerate(history[:target_periods]):
+        train = history[idx + 1:]
+        if len(train) < REPLAY_MIN_TRAIN:
+            continue
+        period = str(actual_draw["period"])
+        if period in saved_periods:
+            continue
+        replay_periods += 1
+        for label, field, cfg in configs:
+            if field not in actual_draw:
+                continue
+            cached = _cached_replay_prediction(replay_cache, lotid, period, field, cfg)
+            if cached:
+                recommendation = cached["recommendation"]
+                strategy = cached.get("strategy")
+                replay_strategy_text = cached.get("strategy_label") or cached.get("strategy")
+                generated_at = f"历史回放缓存，{replay_strategy_text}，窗口{cached.get('best_window')}"
+            else:
+                predictions, counter, meta = generate_prediction_groups(
+                    train, cfg, int(actual_draw["period"])
+                )
+                recommendation, strategy = choose_recommendation(
+                    lotid, field, predictions, counter, cfg, history=train
+                )
+                _store_replay_prediction(replay_cache, lotid, period, field, cfg, recommendation, strategy, meta)
+                cache_dirty = cache_dirty or replay_cache is not None
+                replay_strategy_text = strategy_label(strategy)
+                generated_at = f"历史回放，{replay_strategy_text}，训练{len(train)}期，窗口{meta.get('best_window')}"
+            actual = [int(n) for n in actual_draw[field]]
+            total = int(cfg["total"])
+            pick = int(cfg["pick"])
+            groups = {
+                "recommendation": recommendation,
+                "baseline_frequency": _baseline_frequency(train, field, total, pick),
+                "baseline_omission": _baseline_omission(train, field, total, pick),
+            }
+            for group_name, predicted in groups.items():
+                _add_comparison(
+                    rows, summaries, period, generated_at, label,
+                    group_name, predicted, actual, total, source="replay",
+                    strategy=strategy if group_name == "recommendation" else None,
+                    strategy_text=replay_strategy_text if group_name == "recommendation" else None,
+                )
+    return replay_periods, cache_dirty
+
+
 def _verdict(count, delta):
     if count < 10:
         return "样本不足", "verdict-warn", "少于10期，只能看格式和趋势"
@@ -186,22 +398,14 @@ def _verdict(count, delta):
 
 
 def build_review(lotid, prediction_store=None, history=None):
+    external_inputs = prediction_store is not None or history is not None
     prediction_store = prediction_store if prediction_store is not None else _load_json(PREDICTIONS_FILE, {})
     history = history if history is not None else _load_json(HISTORY_FILES[lotid], [])
     actual_by_period = {str(entry["period"]): entry for entry in history}
     records = prediction_store.get(lotid, {})
 
     rows = []
-    summaries = defaultdict(lambda: {
-        "count": 0,
-        "hits": 0.0,
-        "expected": 0.0,
-        "better": 0,
-        "equal": 0,
-        "worse": 0,
-        "best": None,
-        "worst": None,
-    })
+    summaries = _empty_summaries()
 
     for period, record in sorted(records.items(), key=lambda item: _num_key(item[0]), reverse=True):
         actual_draw = actual_by_period.get(str(period))
@@ -226,47 +430,30 @@ def build_review(lotid, prediction_store=None, history=None):
                 groups["expert_consensus"] = area["expert_consensus"]
 
             for group_name, predicted in groups.items():
-                cmp = _compare_group(group_name, predicted, actual, total)
-                label = area.get("label", field)
-                lower_is_better = False
-                delta = cmp["delta"]
-                better = delta < -0.001 if lower_is_better else delta > 0.001
-                worse = delta > 0.001 if lower_is_better else delta < -0.001
-                key = (label, group_name)
-                summary = summaries[key]
-                summary["count"] += 1
-                summary["hits"] += cmp["hit_count"]
-                summary["expected"] += cmp["expected"]
-                summary["better"] += 1 if better else 0
-                summary["equal"] += 1 if not better and not worse else 0
-                summary["worse"] += 1 if worse else 0
-                best_value = -cmp["hit_count"] if lower_is_better else cmp["hit_count"]
-                worst_value = cmp["hit_count"] if lower_is_better else -cmp["hit_count"]
-                if summary["best"] is None or best_value > summary["best"][0]:
-                    summary["best"] = (best_value, period, cmp["hit_count"], cmp["hits"])
-                if summary["worst"] is None or worst_value > summary["worst"][0]:
-                    summary["worst"] = (worst_value, period, cmp["hit_count"], cmp["hits"])
+                _add_comparison(
+                    rows, summaries, period, record.get("generated_at", ""),
+                    area.get("label", field), group_name, predicted, actual, total,
+                    source="saved",
+                    strategy=area.get("strategy") if group_name == "recommendation" else None,
+                    strategy_text=area.get("strategy_label") if group_name == "recommendation" else None,
+                )
 
-                rows.append({
-                    "period": str(period),
-                    "generated_at": record.get("generated_at", ""),
-                    "area": label,
-                    "group": group_name,
-                    "actual": cmp["actual"],
-                    "predicted": cmp["predicted"],
-                    "hits": cmp["hits"],
-                    "hit_count": cmp["hit_count"],
-                    "expected": cmp["expected"],
-                    "delta": cmp["delta"],
-                    "misses": cmp["misses"],
-                    "uncovered": cmp["uncovered"],
-                })
+    replay_cache = None if external_inputs else _load_json(REPLAY_CACHE_FILE, {})
+    replay_periods, cache_dirty = _add_replay_rows(
+        lotid, history, records, rows, summaries, replay_cache=replay_cache
+    )
+    if replay_cache is not None and cache_dirty:
+        _save_json(REPLAY_CACHE_FILE, replay_cache)
+
+    rows.sort(key=lambda row: (_num_key(row["period"]), 0 if row.get("source") == "saved" else -1), reverse=True)
 
     return {
         "lotid": lotid,
         "label": LOTTERY_LABELS.get(lotid, lotid),
         "rows": rows,
         "summaries": summaries,
+        "replay_periods": replay_periods,
+        "saved_periods": _saved_recommendation_period_count(rows),
     }
 
 
@@ -325,11 +512,12 @@ def _effectiveness_cards(review):
         cards.append(f"""
 <div class="plain-card">
   <div class="plain-head">
-    <div class="plain-title">{area}综合推荐</div>
+    <div class="plain-title">{area}最终主推</div>
     <span class="verdict {cls}">{text}</span>
   </div>
   <div class="plain-lines">
     <div class="plain-line"><b>期数</b><span>{count}期</span></div>
+    <div class="plain-line"><b>来源</b><span>{_source_summary(summary)}</span></div>
     <div class="plain-line"><b>平均</b><span>中 {avg_hits:.2f} 个</span></div>
     <div class="plain-line"><b>随机</b><span>约 {avg_expected:.2f} 个</span></div>
     <div class="plain-line"><b>差值</b><span class="{_baseline_class(delta)}">{delta:+.2f}</span></div>
@@ -338,7 +526,7 @@ def _effectiveness_cards(review):
 </div>
 """)
     if not cards:
-        return '<p class="meta">暂无综合推荐复盘数据。</p>'
+        return '<p class="meta">暂无最终主推复盘数据。</p>'
     return f'<div class="plain-grid">{"".join(cards)}</div>'
 
 
@@ -404,7 +592,7 @@ def _model_comparison(review):
 def _plain_review_summary(review):
     rec_rows = [row for row in review["rows"] if row["group"] == "recommendation"]
     if not rec_rows:
-        return '<p class="meta">暂无综合推荐复盘数据。</p>'
+        return '<p class="meta">暂无最终主推复盘数据。</p>'
 
     cards = []
     latest_by_area = {}
@@ -429,6 +617,7 @@ def _plain_review_summary(review):
   </div>
   <div class="plain-lines">
     <div class="plain-line"><b>期号</b><span>{row['period']}期</span></div>
+    <div class="plain-line"><b>策略</b><span>{row.get('strategy_text') or '最终主推'}</span></div>
     <div class="plain-line"><b>开奖</b><span>{_fmt_nums(row['actual'])}</span></div>
     <div class="plain-line"><b>预测</b><span>{_fmt_nums(row['predicted'])}</span></div>
     <div class="plain-line"><b>命中</b><span>{_fmt_nums(row['hits'])}</span></div>
@@ -449,8 +638,10 @@ def _detail_table(review, limit=80):
         rows.append(
             "<tr>"
             + _td("期号", row["period"])
+            + _td("来源", _source_label(row.get("source", "saved")))
             + _td("区域", row["area"])
             + _td("类型", GROUP_LABELS.get(row["group"], row["group"]))
+            + _td("策略", row.get("strategy_text") or "-")
             + _td("实际开奖", _fmt_nums(row["actual"]))
             + _td("预测号码", _fmt_nums(row["predicted"]))
             + _td("撞号", f"{row['hit_count']} / {_fmt_nums(row['hits'])}")
@@ -465,7 +656,7 @@ def _detail_table(review, limit=80):
 <div class="table-wrap mobile-cards">
 <table>
   <thead>
-    <tr><th>期号</th><th>区域</th><th>类型</th><th>实际开奖</th><th>预测号码</th><th>撞号</th><th>随机基线</th><th>差值</th><th>开奖未覆盖</th></tr>
+    <tr><th>期号</th><th>来源</th><th>区域</th><th>类型</th><th>策略</th><th>实际开奖</th><th>预测号码</th><th>撞号</th><th>随机基线</th><th>差值</th><th>开奖未覆盖</th></tr>
   </thead>
   <tbody>{''.join(rows)}</tbody>
 </table>
@@ -487,6 +678,8 @@ def render_review_html(review):
   <p class="meta">生成时间: {generated}  |  数据来源: predictions_history.json + 开奖历史 JSON</p>
   <div class="summary">
     <div class="stat"><span class="val">{total_periods}</span><span class="lbl">已复盘期数</span></div>
+    <div class="stat"><span class="val">{review.get('saved_periods', 0)}</span><span class="lbl">真实预测期数</span></div>
+    <div class="stat"><span class="val">{review.get('replay_periods', 0)}</span><span class="lbl">历史回放期数</span></div>
     <div class="stat"><span class="val">{total_rows}</span><span class="lbl">分组记录</span></div>
     <div class="stat"><span class="val">随机</span><span class="lbl">基线: 预测数×开奖号数/号码池</span></div>
   </div>
@@ -510,7 +703,7 @@ def render_review_html(review):
     <h2>最近明细</h2>
     {_detail_table(review)}
   </section>
-  <p class="meta">说明：综合推荐是主判断，平均命中高于随机基线才有参考价值；中间候选A/B/C只作为来源参考，不作为最终结论。</p>
+  <p class="meta">说明：最终主推是主判断；不同彩种会按回放表现选择综合模型、近期高频或当前遗漏。平均命中高于随机基线才有参考价值；中间候选A/B/C只作为来源参考。</p>
 </main>
 </body>
 </html>

@@ -16,6 +16,7 @@ import report
 import review_report
 import site_index
 import utils
+import strategy
 
 
 class CoreLogicTests(unittest.TestCase):
@@ -235,15 +236,15 @@ class CoreLogicTests(unittest.TestCase):
         self.assertIn("004", html)
         self.assertIn("003", html)
         self.assertLess(html.index("003"), html.index("004"))
-        self.assertIn("本期综合推荐", html)
-        self.assertIn("综合推荐", html)
+        self.assertIn("本期综合模型", html)
+        self.assertIn("综合模型", html)
         self.assertIn("手动选择", html)
         self.assertIn("自选号码", html)
         self.assertIn('data-manual-key="numbers-9"', html)
         self.assertIn('data-manual-cell data-number="04"', html)
         self.assertIn('role="button"', html)
         self.assertNotIn("本期最终分层", html)
-        self.assertIn("综合中", html)
+        self.assertIn("主推中", html)
         self.assertIn("trend-draw", html)
         self.assertIn("trend-rec", html)
         self.assertIn("01", html)
@@ -282,7 +283,7 @@ class CoreLogicTests(unittest.TestCase):
         self.assertIn("未参与综合推荐", html)
         self.assertIn("重合 2 个", html)
 
-    def test_saved_recommendation_uses_sampling_counter(self):
+    def test_saved_recommendation_uses_area_strategy(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             filename = os.path.join(tmpdir, "predictions_history.json")
             areas = [(
@@ -298,10 +299,44 @@ class CoreLogicTests(unittest.TestCase):
                 Counter({1: 50, 2: 40, 3: 30, 7: 1, 8: 1, 9: 1}),
                 {"total": 9, "pick": 3},
             )]
+            history = [
+                {"period": "003", "numbers": ["04", "05", "06"]},
+                {"period": "002", "numbers": ["04", "05", "06"]},
+                {"period": "001", "numbers": ["01", "02", "03"]},
+            ]
 
-            saved = prediction_store.save_prediction("kl8", 456, 456, areas, filename=filename)
+            saved = prediction_store.save_prediction("kl8", 456, 456, areas, filename=filename, history=history)
 
-        self.assertEqual(saved["areas"]["numbers"]["recommendation"], ["01", "02", "03"])
+        self.assertEqual(saved["areas"]["numbers"]["strategy"], "omission")
+        self.assertEqual(saved["areas"]["numbers"]["recommendation"], ["07", "08", "09"])
+
+    def test_strategy_selects_frequency_for_ssq_front(self):
+        predictions = {"hot": ["01", "02", "03", "04", "05", "06"]}
+        counter = Counter({1: 10, 2: 9, 3: 8, 4: 7, 5: 6, 6: 5})
+        cfg = {"total": 33, "pick": 6}
+        history = [
+            {"front": ["10", "11", "12", "13", "14", "15"]},
+            {"front": ["10", "11", "12", "13", "14", "16"]},
+        ]
+
+        nums, selected = strategy.choose_recommendation("ssq", "front", predictions, counter, cfg, history)
+
+        self.assertEqual(selected, "frequency")
+        self.assertEqual(nums, [10, 11, 12, 13, 14, 15])
+
+    def test_model_strategy_never_exceeds_pick_count(self):
+        predictions = {
+            "hot": ["01", "02", "03", "04", "05"],
+            "cold": ["06", "07", "08", "09", "10"],
+        }
+        counter = Counter({1: 10, 2: 9, 3: 8, 4: 7, 5: 6, 6: 5})
+        cfg = {"total": 35, "pick": 5}
+
+        nums, selected = strategy.choose_recommendation("dlt", "front", predictions, counter, cfg, history=[])
+
+        self.assertEqual(selected, "model")
+        self.assertEqual(len(nums), 5)
+        self.assertEqual(nums, [1, 2, 3, 4, 5])
 
     def test_key_summary_section_shows_first_screen_decision_points(self):
         data = [
@@ -332,7 +367,7 @@ class CoreLogicTests(unittest.TestCase):
         html = report._key_summary_section(data, areas, evaluation)
 
         self.assertIn("今日结论", html)
-        self.assertIn("号码综合推荐", html)
+        self.assertIn("号码综合模型", html)
         self.assertIn("核心", html)
         self.assertIn("备选", html)
         self.assertIn("相似", html)
@@ -360,7 +395,7 @@ class CoreLogicTests(unittest.TestCase):
 
         html = report._evaluation_section_html(evaluation)
 
-        self.assertIn("号码综合推荐复盘", html)
+        self.assertIn("号码最终主推复盘", html)
         self.assertIn("中 2/3", html)
         self.assertIn("上期预测", html)
         self.assertIn("漏掉", html)
@@ -453,6 +488,35 @@ class CoreLogicTests(unittest.TestCase):
         self.assertIn("模型是否有效", html)
         self.assertIn("近期高频", html)
         self.assertIn("当前遗漏", html)
+
+    def test_review_report_auto_replays_history_when_saved_samples_are_insufficient(self):
+        history = [
+            {"period": "005", "numbers": ["01", "02"]},
+            {"period": "004", "numbers": ["02", "03"]},
+            {"period": "003", "numbers": ["03", "04"]},
+            {"period": "002", "numbers": ["04", "05"]},
+            {"period": "001", "numbers": ["05", "06"]},
+        ]
+
+        def fake_generate(train, cfg, seed):
+            pick = int(cfg["pick"])
+            nums = [str(n).zfill(2) for n in range(1, pick + 1)]
+            return {"hot": nums, "cold": nums, "kill_a": nums, "kill_b": nums, "kill_c": nums}, Counter({1: 3, 2: 2}), {"best_window": len(train)}
+
+        with patch("review_report.REPLAY_TARGET_PERIODS", 3):
+            with patch("review_report.REPLAY_MIN_TRAIN", 2):
+                with patch("review_report.generate_prediction_groups", side_effect=fake_generate):
+                    review = review_report.build_review("kl8", prediction_store={"kl8": {}}, history=history)
+
+        self.assertEqual(review["saved_periods"], 0)
+        self.assertEqual(review["replay_periods"], 3)
+        rec_rows = [row for row in review["rows"] if row["group"] == "recommendation"]
+        self.assertEqual(len(rec_rows), 3)
+        self.assertTrue(all(row["source"] == "replay" for row in rec_rows))
+
+        html = review_report.render_review_html(review)
+        self.assertIn("历史回放期数", html)
+        self.assertIn("历史回放", html)
 
     def test_report_header_shows_data_cache_status(self):
         html = report._data_status_section({

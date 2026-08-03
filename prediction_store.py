@@ -3,6 +3,7 @@ import os
 from collections import Counter
 from datetime import datetime
 from json import JSONDecodeError
+from strategy import choose_recommendation, strategy_label
 
 
 DIR = os.path.dirname(__file__)
@@ -57,7 +58,7 @@ def _expert_consensus(expert_data, field, pick):
     return [f"{n:02d}" for n in sorted(top)]
 
 
-def save_prediction(lotid, period, seed, areas, filename=PREDICTIONS_FILE, expert_data=None):
+def save_prediction(lotid, period, seed, areas, filename=PREDICTIONS_FILE, expert_data=None, history=None):
     """Persist current run predictions so the next draw can be reviewed."""
     store = _load_store(filename)
     lot_store = store.setdefault(lotid, {})
@@ -84,8 +85,13 @@ def save_prediction(lotid, period, seed, areas, filename=PREDICTIONS_FILE, exper
             "pick": pick,
             "sample_count": sum(counter.values()),
             "predictions": clean_predictions,
-            "recommendation": _recommendation(clean_predictions, pick, counter),
         }
+        rec, strategy = choose_recommendation(
+            lotid, field, clean_predictions, counter, cfg, history=history
+        )
+        area_record["recommendation"] = [f"{int(n):02d}" for n in rec]
+        area_record["strategy"] = strategy
+        area_record["strategy_label"] = strategy_label(strategy)
         expert_consensus = _expert_consensus(expert_data, field, pick)
         if expert_consensus:
             area_record["expert_consensus"] = expert_consensus
