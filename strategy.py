@@ -1,19 +1,23 @@
 import json
 import os
-from collections import defaultdict
 from datetime import datetime
+from model_registry import (
+    MODEL_LABELS,
+    candidate_recommendations,
+    frequency_predict,
+    interval_predict,
+    linear_score_predict,
+    model_predict,
+    omission_predict,
+    predict_model,
+)
 
 
-STRATEGY_LABELS = {
-    "model": "综合模型",
-    "frequency": "近期高频",
-    "omission": "当前遗漏",
-    "interval": "区间模型",
-}
+STRATEGY_LABELS = dict(MODEL_LABELS)
 
 DIR = os.path.dirname(__file__)
 SELECTION_FILE = os.path.join(DIR, "strategy_selection.json")
-ALGORITHM_VERSION = "strategy-benchmark-v1"
+ALGORITHM_VERSION = "model-registry-v1"
 
 AREA_STRATEGIES = {
     ("kl8", "numbers"): "omission",
@@ -105,90 +109,40 @@ def _pad(nums, total, pick):
 
 
 def model_recommendation(predictions, counter, pick, total):
-    ranked = _ranked_counter(counter, total)
-    fallback = []
-    for name in ("hot", "cold", "kill_b", "kill_c", "kill_a"):
-        fallback.extend(int(n) for n in predictions.get(name, []))
-    return _pad(ranked + fallback, total, pick)
+    return model_predict(
+        [],
+        {"field": "numbers", "total": total, "pick": pick, "zones": 4},
+        {"predictions": predictions, "counter": counter},
+    )
 
 
 def frequency_recommendation(history, field, total, pick):
-    counts = defaultdict(int)
-    for entry in history:
-        for n in entry.get(field, []):
-            ni = int(n)
-            if 1 <= ni <= total:
-                counts[ni] += 1
-    ranked = sorted(range(1, total + 1), key=lambda n: (-counts[n], n))
-    return sorted(ranked[:pick])
+    return frequency_predict(
+        history,
+        {"field": field, "total": total, "pick": pick, "zones": 4},
+    )
 
 
 def omission_recommendation(history, field, total, pick):
-    omission = {n: len(history) for n in range(1, total + 1)}
-    for idx, entry in enumerate(history):
-        nums = {int(n) for n in entry.get(field, [])}
-        for n in nums:
-            if 1 <= n <= total and omission[n] == len(history):
-                omission[n] = idx
-    ranked = sorted(range(1, total + 1), key=lambda n: (-omission[n], n))
-    return sorted(ranked[:pick])
+    return omission_predict(
+        history,
+        {"field": field, "total": total, "pick": pick, "zones": 4},
+    )
 
 
 def interval_recommendation(history, field, total, pick, zones=4):
-    """Prefer balanced number ranges without pretending to predict exact draws."""
-    if not history:
-        return list(range(1, min(total, pick) + 1))
-
-    zone_count = max(1, int(zones or 4))
-    zone_size = max(1, (total + zone_count - 1) // zone_count)
-    latest = {int(n) for n in history[0].get(field, [])}
-    latest_zone_counts = [0] * zone_count
-    for n in latest:
-        latest_zone_counts[min((n - 1) // zone_size, zone_count - 1)] += 1
-    expected_zone = pick / zone_count
-    zone_deficit = [
-        max(0.0, (expected_zone - count) / max(expected_zone, 1.0))
-        for count in latest_zone_counts
-    ]
-
-    latest_odd = sum(n % 2 for n in latest)
-    expected_odd = pick / 2
-    odd_deficit = max(0.0, (expected_odd - latest_odd) / max(expected_odd, 1.0))
-    even_deficit = max(
-        0.0,
-        (expected_odd - (len(latest) - latest_odd)) / max(expected_odd, 1.0),
+    return interval_predict(
+        history,
+        {"field": field, "total": total, "pick": pick, "zones": zones},
     )
 
-    omission = {n: len(history) for n in range(1, total + 1)}
-    for idx, entry in enumerate(history):
-        for n in {int(v) for v in entry.get(field, [])}:
-            if 1 <= n <= total and omission[n] == len(history):
-                omission[n] = idx
-    max_omission = max(omission.values()) or 1
 
-    scored = []
-    for n in range(1, total + 1):
-        zone = min((n - 1) // zone_size, zone_count - 1)
-        parity_deficit = odd_deficit if n % 2 else even_deficit
-        omission_score = omission[n] / max_omission
-        score = zone_deficit[zone] * 0.55 + parity_deficit * 0.25 + omission_score * 0.20
-        scored.append((score, -n, n))
-
-    return sorted(n for _, _, n in sorted(scored, reverse=True)[:pick])
-
-
-def candidate_recommendations(predictions, counter, cfg, history=None):
-    """Return every comparable candidate using only the supplied training history."""
-    history = history or []
-    total = int(cfg["total"])
-    pick = int(cfg["pick"])
-    field = cfg["field"]
-    return {
-        "model": model_recommendation(predictions, counter, pick, total),
-        "frequency": frequency_recommendation(history, field, total, pick),
-        "omission": omission_recommendation(history, field, total, pick),
-        "interval": interval_recommendation(history, field, total, pick, cfg.get("zones", 4)),
-    }
+def linear_score_recommendation(history, field, total, pick, zones=4, predictions=None, counter=None):
+    return linear_score_predict(
+        history,
+        {"field": field, "total": total, "pick": pick, "zones": zones},
+        {"predictions": predictions or {}, "counter": counter or {}},
+    )
 
 
 def choose_recommendation(
@@ -205,13 +159,14 @@ def choose_recommendation(
     total = int(cfg["total"])
     strategy = strategy_override or strategy_for(lotid, field, use_saved_selection)
     history = history or []
-    if strategy == "frequency" and history:
-        nums = frequency_recommendation(history, field, total, pick)
-    elif strategy == "omission" and history:
-        nums = omission_recommendation(history, field, total, pick)
-    elif strategy == "interval" and history:
-        nums = interval_recommendation(history, field, total, pick, cfg.get("zones", 4))
-    else:
-        nums = model_recommendation(predictions, counter, pick, total)
+    if strategy not in STRATEGY_LABELS:
         strategy = "model"
+    if strategy != "model" and not history:
+        strategy = "model"
+    nums = predict_model(
+        strategy,
+        history,
+        {**cfg, "field": field, "total": total, "pick": pick},
+        {"predictions": predictions or {}, "counter": counter or {}},
+    )
     return nums, strategy

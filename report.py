@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 from collections import Counter
 from strategy import ALGORITHM_VERSION, choose_recommendation, strategy_detail, strategy_label
+from model_registry import explain_numbers
 
 REPORTS_DIR = os.path.join(os.path.dirname(__file__), "reports")
 
@@ -340,6 +341,19 @@ def _number_reasons(n, predictions, counter):
         if int(n) in {int(x) for x in predictions.get(key, [])}:
             tags.append(_source_label(key))
     return " / ".join(tags) if tags else "候选补位"
+
+
+def _number_reason_rows(nums, data, cfg, predictions, counter):
+    context = {"predictions": predictions or {}, "counter": counter or Counter()}
+    reasons = explain_numbers(nums, data, cfg, context)
+    rows = []
+    for n in sorted(int(v) for v in nums):
+        tags = reasons.get(n) or [_number_reasons(n, predictions, counter)]
+        rows.append(
+            f'<div class="reason-row"><span class="num">{n:02d}</span>'
+            f'<span>{" / ".join(tags)}</span></div>'
+        )
+    return f'<div class="reason-list">{"".join(rows)}</div>'
 
 
 def _source_explanation_section(predictions, counter):
@@ -953,12 +967,14 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
             lotid, field, predictions, counter, cfg, history=data, use_saved_selection=True
         )
         tiers = _recommendation_tiers(predictions, counter, pick, total_n, rec)
+        reasons_html = _number_reason_rows(rec, data, cfg, predictions, counter)
         rs = sum(rec)
         rodd = sum(1 for n in rec if n % 2 == 1)
         rspan = max(rec) - min(rec)
         html += f"""
 <div class="group-box" style="flex:1;min-width:250px">
 <div><b>{label}最终主推（{strategy_label(strategy)}）</b></div>
+{reasons_html}
 <div class="tier-box">
   <div class="tier-line"><span class="tier-label">核心号</span><span>{_fmt_nums(tiers["core"])}</span></div>
   <div class="tier-line"><span class="tier-label">备选号</span><span>{_fmt_nums(tiers["backup"])}</span></div>
@@ -1015,7 +1031,10 @@ def _build_html(data, latest_draw, predictions, counter, cfg, lotid, next_period
         lotid, field, predictions, counter, cfg, history=data, use_saved_selection=True
     )
     tiers = _recommendation_tiers(predictions, counter, pick, total_n, rec)
+    reasons_html = _number_reason_rows(rec, data, cfg, predictions, counter)
     html += f"""
+<div><b>{strategy_label(strategy)}</b></div>
+{reasons_html}
 <div class="tier-box">
   <div class="tier-line"><span class="tier-label">核心号</span><span>{_fmt_nums(tiers["core"])}</span></div>
   <div class="tier-line"><span class="tier-label">备选号</span><span>{_fmt_nums(tiers["backup"])}</span></div>

@@ -12,6 +12,8 @@ if ROOT not in sys.path:
 
 import analyzer
 import data_quality
+import main
+import model_registry
 import prediction_store
 import report
 import review_report
@@ -357,9 +359,39 @@ class CoreLogicTests(unittest.TestCase):
 
         self.assertEqual(
             set(candidates),
-            {"model", "frequency", "omission", "interval"},
+            {"model", "frequency", "omission", "interval", "linear_score"},
         )
         self.assertTrue(all(len(nums) == 3 for nums in candidates.values()))
+
+    def test_prediction_output_validation_rejects_wrong_count_and_range(self):
+        cfg = {"field": "numbers", "total": 10, "pick": 3}
+
+        self.assertEqual(
+            model_registry.validate_prediction_output(["03", "01", "02"], cfg, "test"),
+            [1, 2, 3],
+        )
+        with self.assertRaises(ValueError):
+            model_registry.validate_prediction_output(["01", "02"], cfg, "test")
+        with self.assertRaises(ValueError):
+            model_registry.validate_prediction_output(["01", "02", "11"], cfg, "test")
+
+    def test_main_predict_uses_legacy_scripts_in_lottery_order(self):
+        calls = []
+
+        def fake_run_path(path, run_name):
+            calls.append((os.path.basename(path), list(sys.argv[1:]), run_name))
+
+        with patch("runpy.run_path", side_effect=fake_run_path):
+            main.predict("all")
+
+        self.assertEqual(
+            calls,
+            [
+                ("1.py", ["10"], "__main__"),
+                ("2.py", [], "__main__"),
+                ("3.py", [], "__main__"),
+            ],
+        )
 
     def test_history_quality_rejects_invalid_shape_and_accepts_valid_shape(self):
         valid = [
@@ -488,6 +520,8 @@ class CoreLogicTests(unittest.TestCase):
         self.assertIn("长期", html)
         self.assertIn("专家共识", html)
         self.assertIn("随机基线", html)
+        self.assertIn("模型排行榜", html)
+        self.assertIn("前区模型排行榜", html)
         self.assertIn("长期统计", html)
 
     def test_review_report_adds_frequency_and_omission_baselines_from_older_draws(self):

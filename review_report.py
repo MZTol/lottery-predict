@@ -15,6 +15,7 @@ from strategy import (
     save_strategy_selection,
     strategy_label,
 )
+from model_registry import MODEL_REGISTRY
 
 
 DIR = os.path.dirname(__file__)
@@ -42,6 +43,7 @@ GROUP_LABELS = {
     "baseline_frequency": "近期高频",
     "baseline_omission": "当前遗漏",
     "interval": "区间模型",
+    "linear_score": "线性评分",
     "expert_consensus": "专家共识",
 }
 
@@ -51,12 +53,13 @@ PRIMARY_GROUPS = (
     "baseline_frequency",
     "baseline_omission",
     "interval",
+    "linear_score",
     "expert_consensus",
 )
 REPLAY_TARGET_PERIODS = 100
 REPLAY_MIN_TRAIN = 20
 REPLAY_CACHE_FILE = os.path.join(DIR, "replay_predictions_cache.json")
-REPLAY_ALGO_VERSION = "strategy-selected-v3"
+REPLAY_ALGO_VERSION = "model-registry-v1"
 
 
 def _load_json(filename, default):
@@ -112,6 +115,13 @@ def _style():
       .plain-lines { display: grid; gap: 6px; }
       .plain-line { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; align-items: start; }
       .plain-line b { color: #16213e; font-size: 12px; line-height: 1.6; }
+      .rank-list { display: grid; gap: 8px; margin: 10px 0 12px; }
+      .rank-item { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 8px; align-items: center; background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 8px 9px; }
+      .rank-no { color: #16213e; font-weight: 900; font-size: 16px; }
+      .rank-main { min-width: 0; }
+      .rank-title { color: #16213e; font-weight: 800; font-size: 14px; }
+      .rank-sub { color: #666; font-size: 12px; margin-top: 2px; }
+      .rank-score { text-align: right; font-weight: 900; font-size: 15px; white-space: nowrap; }
       .verdict { display: inline-block; border-radius: 999px; padding: 2px 8px; color: #fff; font-size: 12px; font-weight: 800; white-space: nowrap; }
       .verdict-warn { background: #7d8597; }
       .verdict-good { background: #155724; }
@@ -133,6 +143,8 @@ def _style():
         h2 { font-size: 17px; }
         .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .plain-line { grid-template-columns: 52px minmax(0, 1fr); }
+        .rank-item { grid-template-columns: 26px minmax(0, 1fr); }
+        .rank-score { grid-column: 2; text-align: left; font-size: 13px; }
         .mobile-cards { overflow: visible; }
         .mobile-cards table,
         .mobile-cards thead,
@@ -322,7 +334,7 @@ def _cache_entry_valid(entry, cfg):
         and entry.get("strategy")
         and all(
             len(entry.get("candidates", {}).get(name, [])) == int(cfg["pick"])
-            for name in ("model", "frequency", "omission", "interval")
+            for name in MODEL_REGISTRY
         )
     )
 
@@ -427,6 +439,7 @@ def _add_replay_rows(lotid, history, records, rows, summaries, target_periods=RE
                 "baseline_frequency": candidates["frequency"],
                 "baseline_omission": candidates["omission"],
                 "interval": candidates["interval"],
+                "linear_score": candidates["linear_score"],
             }
             for group_name, predicted in groups.items():
                 _add_comparison(
@@ -494,6 +507,7 @@ def _update_strategy_selection(lotid, records, summaries):
         "frequency": "baseline_frequency",
         "omission": "baseline_omission",
         "interval": "interval",
+        "linear_score": "linear_score",
     }
 
     for label, field, cfg in _review_area_configs(lotid, records):
@@ -567,19 +581,28 @@ def build_review(lotid, prediction_store=None, history=None):
             total = int(area.get("total", max(actual) if actual else 0))
             pick = int(area.get("pick") or len(area.get("recommendation", [])) or len(actual))
             groups = dict(area.get("predictions", {}))
+            model_candidates = area.get("model_candidates", {})
             if area.get("model_recommendation"):
                 groups["model"] = area["model_recommendation"]
+            for name, nums in model_candidates.items():
+                group_name = {
+                    "frequency": "baseline_frequency",
+                    "omission": "baseline_omission",
+                }.get(name, name)
+                groups[group_name] = nums
             if area.get("recommendation"):
                 groups["recommendation"] = area["recommendation"]
             if train:
-                groups["baseline_frequency"] = _baseline_frequency(train, field, total, pick)
-                groups["baseline_omission"] = _baseline_omission(train, field, total, pick)
-                groups["interval"] = candidate_recommendations(
-                    {},
+                replay_candidates = candidate_recommendations(
+                    area.get("predictions", {}),
                     {},
                     {"field": field, "total": total, "pick": pick, "zones": 4},
                     history=train,
-                )["interval"]
+                )
+                groups.setdefault("baseline_frequency", replay_candidates["frequency"])
+                groups.setdefault("baseline_omission", replay_candidates["omission"])
+                groups.setdefault("interval", replay_candidates["interval"])
+                groups.setdefault("linear_score", replay_candidates["linear_score"])
             if area.get("expert_consensus"):
                 groups["expert_consensus"] = area["expert_consensus"]
 
@@ -757,6 +780,66 @@ def _model_comparison(review):
 """
 
 
+def _model_rank_cards(review):
+    by_area = defaultdict(list)
+    for (area, group_name), summary in review["summaries"].items():
+        if group_name not in PRIMARY_GROUPS or group_name == "expert_consensus":
+            continue
+        count = summary["count"]
+        if not count:
+            continue
+        avg_hits = summary["hits"] / count
+        avg_expected = summary["expected"] / count
+        delta = avg_hits - avg_expected
+        text, cls, note = _verdict(count, delta)
+        by_area[area].append({
+            "group": group_name,
+            "count": count,
+            "avg_hits": avg_hits,
+            "avg_expected": avg_expected,
+            "delta": delta,
+            "text": text,
+            "cls": cls,
+            "note": note,
+        })
+
+    blocks = []
+    for area, items in sorted(by_area.items()):
+        items.sort(key=lambda item: (item["delta"], item["avg_hits"]), reverse=True)
+        rank_rows = []
+        for idx, item in enumerate(items, start=1):
+            group_label = GROUP_LABELS.get(item["group"], item["group"])
+            cls = _baseline_class(item["delta"])
+            if item["delta"] > 0.08:
+                action = "可优先看"
+            elif item["delta"] < -0.08:
+                action = "先不要依赖"
+            else:
+                action = "只作参考"
+            rank_rows.append(f"""
+<div class="rank-item">
+  <div class="rank-no">{idx}</div>
+  <div class="rank-main">
+    <div class="rank-title">{group_label}</div>
+    <div class="rank-sub">{item['count']}期，平均中 {item['avg_hits']:.2f}，随机约 {item['avg_expected']:.2f}，{action}</div>
+  </div>
+  <div class="rank-score {cls}">{item['delta']:+.2f}</div>
+</div>
+""")
+        blocks.append(f"""
+<div class="plain-card">
+  <div class="plain-head">
+    <div class="plain-title">{area}模型排行榜</div>
+    <span class="verdict {items[0]['cls']}">{items[0]['text']}</span>
+  </div>
+  <div class="rank-list">{''.join(rank_rows)}</div>
+</div>
+""")
+    if not blocks:
+        return '<p class="meta">暂无模型排行榜数据。</p>'
+    return f'<div class="plain-grid">{"".join(blocks)}</div>'
+
+
 def _plain_review_summary(review):
     rec_rows = [row for row in review["rows"] if row["group"] == "recommendation"]
     if not rec_rows:
@@ -889,6 +972,10 @@ def render_review_html(review):
   <section class="section">
     <h2>下一期策略选择</h2>
     {_strategy_selection_html(review)}
+  </section>
+  <section class="section">
+    <h2>模型排行榜</h2>
+    {_model_rank_cards(review)}
   </section>
   <section class="section">
     <h2>模型对比</h2>

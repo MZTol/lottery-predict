@@ -5,6 +5,7 @@ from datetime import datetime
 from json import JSONDecodeError
 from strategy import (
     ALGORITHM_VERSION,
+    candidate_recommendations,
     choose_recommendation,
     model_recommendation,
     strategy_detail,
@@ -109,6 +110,17 @@ def save_prediction(lotid, period, seed, areas, filename=PREDICTIONS_FILE, exper
             f"{int(n):02d}"
             for n in model_recommendation(clean_predictions, counter, pick, int(cfg["total"]))
         ]
+        if history:
+            candidates = candidate_recommendations(
+                clean_predictions,
+                counter,
+                {**cfg, "field": field},
+                history=history,
+            )
+            area_record["model_candidates"] = {
+                name: [f"{int(n):02d}" for n in nums]
+                for name, nums in candidates.items()
+            }
         area_record["strategy"] = strategy
         area_record["strategy_label"] = strategy_label(strategy)
         detail = strategy_detail(lotid, field)

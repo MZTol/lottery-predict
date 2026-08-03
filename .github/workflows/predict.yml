@@ -47,10 +47,7 @@ jobs:
 
       - name: 运行预测
         run: |
-          python 1.py 10
-          python 2.py
-          python 3.py
-          python review_report.py all
+          python main.py run all
 
       - name: 生成发布文件
         run: |
