@@ -200,6 +200,29 @@ class CoreLogicTests(unittest.TestCase):
         expert = next(c for c in evaluation["areas"][0]["comparisons"] if c["name"] == "expert_consensus")
         self.assertEqual(expert["hits"], [7, 8, 9])
 
+    def test_expert_avoid_and_contrarian_groups_are_saved(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filename = os.path.join(tmpdir, "predictions_history.json")
+            areas = [("号码", "numbers", {"hot": ["01", "02", "03"]}, Counter({1: 5, 2: 4, 3: 3}), {"total": 12, "pick": 3})]
+            expert_data = [("号码", [
+                {"name": "甲", "picks": {"3+0": {"front": [1, 2, 3], "back": []}}, "avoid": [9, 10], "url": ""},
+                {"name": "乙", "picks": {"3+0": {"front": [1, 4, 5], "back": []}}, "avoid": [9, 11], "url": ""},
+            ], {"front": [1, 2, 3, 1, 4, 5], "back": [], "avoid_front": [9, 10, 9, 11]})]
+            saved = prediction_store.save_prediction("kl8", 1, 1, areas, filename=filename, expert_data=expert_data)
+
+        self.assertEqual(saved["areas"]["numbers"]["expert_consensus"], ["01", "02", "03"])
+        self.assertEqual(saved["areas"]["numbers"]["expert_avoid"], ["09", "10", "11"])
+        self.assertEqual(len(saved["areas"]["numbers"]["expert_contrarian"]), 3)
+
+    def test_unproven_saved_strategy_falls_back_to_model(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            selection_file = os.path.join(tmpdir, "strategy_selection.json")
+            with open(selection_file, "w") as f:
+                import json
+                json.dump({"kl8": {"numbers": {"selected_strategy": "interval", "confidence": "未证实", "selected_stats": {"sample_count": 100}}}}, f)
+            with patch("strategy.SELECTION_FILE", selection_file):
+                self.assertEqual(strategy.strategy_for("kl8", "numbers"), "model")
+
     def test_prediction_store_treats_empty_or_invalid_json_as_empty_history(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             filename = os.path.join(tmpdir, "predictions_history.json")
@@ -282,8 +305,8 @@ class CoreLogicTests(unittest.TestCase):
         )
 
         self.assertIn("<details", html)
-        self.assertIn("专家外部参考", html)
-        self.assertIn("未参与直接购买号码", html)
+        self.assertIn("专家明细", html)
+        self.assertIn("只占低权重", html)
         self.assertIn("重合 2 个", html)
 
     def test_saved_recommendation_uses_area_strategy(self):
@@ -437,14 +460,14 @@ class CoreLogicTests(unittest.TestCase):
 
         html = report._key_summary_section(data, areas, evaluation)
 
-        self.assertIn("今日结论", html)
-        self.assertIn("直接购买号码", html)
+        self.assertIn("本期号码", html)
+        self.assertIn("本期主推", html)
         self.assertIn("综合模型", html)
         self.assertNotIn("分层", html)
         self.assertNotIn("核心", html)
         self.assertNotIn("备选", html)
-        self.assertIn("相似", html)
-        self.assertIn("遗漏", html)
+        self.assertIn("状态", html)
+        self.assertIn("结构", html)
         self.assertIn("上期", html)
         self.assertIn("中 2/3", html)
 

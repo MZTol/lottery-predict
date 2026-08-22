@@ -45,6 +45,8 @@ GROUP_LABELS = {
     "interval": "区间模型",
     "linear_score": "线性评分",
     "expert_consensus": "专家共识",
+    "expert_avoid": "专家避雷",
+    "expert_contrarian": "专家反向实验",
 }
 
 PRIMARY_GROUPS = (
@@ -55,6 +57,8 @@ PRIMARY_GROUPS = (
     "interval",
     "linear_score",
     "expert_consensus",
+    "expert_avoid",
+    "expert_contrarian",
 )
 REPLAY_TARGET_PERIODS = 100
 REPLAY_MIN_TRAIN = 20
@@ -605,6 +609,10 @@ def build_review(lotid, prediction_store=None, history=None):
                 groups.setdefault("linear_score", replay_candidates["linear_score"])
             if area.get("expert_consensus"):
                 groups["expert_consensus"] = area["expert_consensus"]
+            if area.get("expert_avoid"):
+                groups["expert_avoid"] = area["expert_avoid"]
+            if area.get("expert_contrarian"):
+                groups["expert_contrarian"] = area["expert_contrarian"]
 
             for group_name, predicted in groups.items():
                 _add_comparison(

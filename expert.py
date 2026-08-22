@@ -195,6 +195,21 @@ def parse_kl8_predictions(html):
     return result
 
 
+def _extract_avoid_numbers(html, total=80):
+    """Extract explicit expert exclusions without treating ordinary prose as picks."""
+    text = re.sub(r"\s+", " ", html)
+    numbers = []
+    for match in re.finditer(
+        r"(?:杀号|排除|避开|不看好|不推荐|冷门杀号)[：: ]*([\d\s,，、-]{2,240})",
+        text,
+    ):
+        for token in re.findall(r"\d{1,2}", match.group(1)):
+            value = int(token)
+            if 1 <= value <= total:
+                numbers.append(value)
+    return sorted(set(numbers))
+
+
 LID_MAP = {
     "dlt": {"lid": 2550, "parser": parse_dlt_predictions, "label": "大乐透"},
     "ssq": {"lid": 2642, "parser": parse_ssq_predictions, "label": "双色球"},
@@ -225,11 +240,18 @@ def get_expert_picks(lotid, target_period, max_articles=12, delay=0.3):
             html = fetch_article_detail(url)
             picks = info["parser"](html)
             if picks:
-                entry = {"name": _extract_name(title), "picks": picks, "url": url}
+                entry = {
+                    "name": _extract_name(title),
+                    "picks": picks,
+                    "avoid": _extract_avoid_numbers(html, 80 if lotid == "kl8" else 49),
+                    "url": url,
+                }
                 experts.append(entry)
                 for k in picks:
                     all_picks["front"].extend(picks[k].get("front", []))
                     all_picks["back"].extend(picks[k].get("back", []))
+                if entry["avoid"]:
+                    all_picks.setdefault("avoid_front", []).extend(entry["avoid"])
         except Exception:
             pass
         time.sleep(delay)

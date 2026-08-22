@@ -65,6 +65,140 @@ def _expert_consensus(expert_data, field, pick):
     return [f"{n:02d}" for n in sorted(top)]
 
 
+def _expert_reliability(lot_store, history, field, total):
+    """Estimate expert lift against the per-draw random baseline."""
+    actual_by_period = {str(row.get("period")): set(int(n) for n in row.get(field, [])) for row in history or []}
+    stats = {}
+    for period, record in (lot_store or {}).items():
+        actual = actual_by_period.get(str(period))
+        if not actual:
+            continue
+        area = next((item for item in record.get("areas", {}).values() if item.get("field") == field), None)
+        if not area:
+            continue
+        draw_size = len(actual)
+        for source in area.get("expert_sources", []):
+            values = set()
+            for pick in (source.get("picks") or {}).values():
+                values.update(int(n) for n in pick.get("front" if field != "back" else "back", []))
+            if not values:
+                continue
+            item = stats.setdefault(source.get("name", ""), {"periods": 0, "delta": 0.0})
+            item["periods"] += 1
+            item["delta"] += len(values & actual) - len(values) * draw_size / max(total, 1)
+    result = {}
+    for name, item in stats.items():
+        periods = item["periods"]
+        if periods < 30:
+            result[name] = {"periods": periods, "weight": 1.0}
+            continue
+        lift = item["delta"] / periods
+        shrink = periods / (periods + 30.0)
+        result[name] = {
+            "periods": periods,
+            "weight": max(-1.0, min(1.0, lift * shrink)),
+        }
+    return result
+
+
+def _expert_vote_counters(expert_data, field, total, reliability=None):
+    """Count one ballot per expert, rather than rewarding duplicate articles."""
+    key = "back" if field == "back" else "front"
+    positive = Counter()
+    negative = Counter()
+    expert_count = 0
+    if not expert_data:
+        return positive, negative, expert_count
+    for _, experts, all_picks in expert_data:
+        if experts:
+            for expert in experts:
+                expert_count += 1
+                values = set()
+                for pick in (expert.get("picks") or {}).values():
+                    values.update(int(n) for n in pick.get(key, []))
+                rel = (reliability or {}).get(expert.get("name", ""), {})
+                weight = float(rel.get("weight", 1.0))
+                vote_weight = max(0.25, 1.0 + 0.5 * weight)
+                positive.update({n: vote_weight for n in values if 1 <= n <= total})
+                # Current article parsers classify explicit exclusions as
+                # front/number exclusions. Do not leak them into a back-area
+                # recommendation until a source provides area-specific data.
+                if field != "back":
+                    negative.update({
+                        n: vote_weight for n in set(int(v) for v in expert.get("avoid", []))
+                        if 1 <= n <= total
+                    })
+                if rel.get("periods", 0) >= 30 and weight < 0:
+                    negative.update({n: abs(weight) for n in values if 1 <= n <= total})
+        else:
+            # Backward-compatible fallback for old callers/tests that only
+            # provide the flattened all_picks structure.
+            values = set(int(n) for n in all_picks.get(key, []))
+            positive.update(n for n in values if 1 <= n <= total)
+            negative.update(
+                n for n in set(int(v) for v in all_picks.get("avoid_front", []))
+                if 1 <= n <= total
+            )
+            expert_count = max(expert_count, 1 if values or negative else 0)
+    return positive, negative, expert_count
+
+
+def expert_recommendation(base, predictions, counter, expert_data, cfg, reliability=None):
+    """Return expert groups and a conservative expert-adjusted recommendation.
+
+    The expert signal is intentionally capped.  It is an external feature,
+    not a replacement for the lottery model, and explicit exclusions are
+    exposed separately so they cannot silently become "cold number" logic.
+    """
+    if not expert_data:
+        return {
+            "recommendation": list(base),
+            "consensus": [],
+            "avoid": [],
+            "contrarian": [],
+            "expert_count": 0,
+        }
+    total = int(cfg["total"])
+    pick = int(cfg["pick"])
+    positive, negative, expert_count = _expert_vote_counters(
+        expert_data, cfg.get("field", "front"), total, reliability=reliability
+    )
+    consensus = [n for n, _ in positive.most_common(pick)]
+    avoid = [n for n, _ in negative.most_common(pick)]
+
+    # Build a stable base ranking from the already selected numbers, then
+    # from the model's high-confidence candidates and sampling frequency.
+    ranking = []
+    for group in (base, predictions.get("hot", []), predictions.get("kill_b", [])):
+        for value in group:
+            n = int(value)
+            if 1 <= n <= total and n not in ranking:
+                ranking.append(n)
+    for n, _ in sorted(((int(n), c) for n, c in (counter or {}).items()), key=lambda item: (-item[1], item[0])):
+        if 1 <= n <= total and n not in ranking:
+            ranking.append(n)
+    ranking.extend(n for n in range(1, total + 1) if n not in ranking)
+    base_rank = {n: 1.0 - i / max(len(ranking), 1) for i, n in enumerate(ranking)}
+    max_positive = max(positive.values(), default=1)
+    max_negative = max(negative.values(), default=1)
+    scores = []
+    for n in range(1, total + 1):
+        expert_score = positive[n] / max_positive if positive else 0.0
+        avoid_score = negative[n] / max_negative if negative else 0.0
+        score = base_rank[n] * 0.85 + expert_score * 0.15 - avoid_score * 0.15
+        scores.append((score, -n, n))
+    recommendation = sorted(n for _, _, n in sorted(scores, reverse=True)[:pick])
+    contrarian_pool = [n for _, _, n in sorted(scores, reverse=True) if n not in set(consensus) and n not in set(avoid)]
+    contrarian = sorted(contrarian_pool[:pick])
+    return {
+        "recommendation": recommendation,
+        "consensus": sorted(consensus),
+        "avoid": sorted(avoid),
+        "contrarian": contrarian,
+        "expert_count": expert_count,
+    }
+
+
 def save_prediction(lotid, period, seed, areas, filename=PREDICTIONS_FILE, expert_data=None, history=None):
     """Persist current run predictions so the next draw can be reviewed."""
     store = _load_store(filename)
@@ -105,6 +239,11 @@ def save_prediction(lotid, period, seed, areas, filename=PREDICTIONS_FILE, exper
             history=history,
             use_saved_selection=True,
         )
+        reliability = _expert_reliability(lot_store, history, field, int(cfg["total"]))
+        expert_info = expert_recommendation(
+            rec, clean_predictions, counter, expert_data, {**cfg, "field": field}, reliability=reliability
+        )
+        rec = expert_info["recommendation"]
         area_record["recommendation"] = [f"{int(n):02d}" for n in rec]
         area_record["model_recommendation"] = [
             f"{int(n):02d}"
@@ -131,6 +270,24 @@ def save_prediction(lotid, period, seed, areas, filename=PREDICTIONS_FILE, exper
         expert_consensus = _expert_consensus(expert_data, field, pick)
         if expert_consensus:
             area_record["expert_consensus"] = expert_consensus
+        if expert_info["consensus"]:
+            area_record["expert_consensus"] = [f"{n:02d}" for n in expert_info["consensus"]]
+        if expert_info["avoid"]:
+            area_record["expert_avoid"] = [f"{n:02d}" for n in expert_info["avoid"]]
+        if expert_info["contrarian"]:
+            area_record["expert_contrarian"] = [f"{n:02d}" for n in expert_info["contrarian"]]
+        if expert_data:
+            area_record["expert_reliability"] = reliability
+            area_record["expert_sources"] = [
+                {
+                    "name": item.get("name", ""),
+                    "url": item.get("url", ""),
+                    "picks": item.get("picks", {}),
+                    "avoid": item.get("avoid", []),
+                }
+                for _, expert_list, _ in expert_data
+                for item in expert_list
+            ]
         record["areas"][field] = area_record
 
     lot_store[period_key] = record
@@ -165,6 +322,10 @@ def evaluate_prediction(lotid, actual_draw, filename=PREDICTIONS_FILE):
             groups["recommendation"] = area["recommendation"]
         if area.get("expert_consensus"):
             groups["expert_consensus"] = area["expert_consensus"]
+        if area.get("expert_avoid"):
+            groups["expert_avoid"] = area["expert_avoid"]
+        if area.get("expert_contrarian"):
+            groups["expert_contrarian"] = area["expert_contrarian"]
 
         comparisons = []
         actual_set = set(actual)

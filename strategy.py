@@ -62,13 +62,30 @@ def strategy_for(lotid, field, use_saved_selection=True):
         return default
     entry = _load_selection().get(lotid, {}).get(field, {})
     selected = entry.get("selected_strategy")
-    return selected if selected in STRATEGY_LABELS else default
+    if selected not in STRATEGY_LABELS:
+        return default
+    # A model selected from the same replay sample is not evidence of a
+    # durable edge.  Keep the saved result for reporting, but use the
+    # conservative production fallback until the selection is proven.
+    confidence = entry.get("confidence")
+    selected_stats = entry.get("selected_stats") or {}
+    if confidence in {"未证实", "样本不足"} or selected_stats.get("sample_count", 0) < 30:
+        return "model"
+    return selected
 
 
 def strategy_detail(lotid, field):
     entry = _load_selection().get(lotid, {}).get(field, {})
     if entry:
-        return entry
+        detail = dict(entry)
+        effective = strategy_for(lotid, field)
+        if effective != entry.get("selected_strategy"):
+            detail["effective_strategy"] = effective
+            detail["strategy_label"] = strategy_label(effective)
+            detail["selection_source"] = (
+                f"{entry.get('selection_source', '动态选择')}，未证实，已回退综合模型"
+            )
+        return detail
     selected = AREA_STRATEGIES.get((lotid, field), "model")
     return {
         "selected_strategy": selected,

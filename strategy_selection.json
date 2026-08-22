@@ -1,6 +1,6 @@
 {
   "version": "model-registry-v1",
-  "updated_at": "2026-08-04 01:37:54",
+  "updated_at": "2026-08-22 19:37:22",
   "ssq": {
     "front": {
       "selected_strategy": "frequency",
@@ -10,52 +10,52 @@
       "confidence": "未证实",
       "selected_stats": {
         "sample_count": 100,
-        "average_hits": 1.23,
+        "average_hits": 1.21,
         "random_baseline": 1.0909,
-        "delta": 0.1391,
+        "delta": 0.1191,
         "confidence": "未证实",
-        "z_score": 1.52
+        "z_score": 1.343
       },
       "candidates": {
         "model": {
           "sample_count": 99,
-          "average_hits": 1.1414,
+          "average_hits": 1.101,
           "random_baseline": 1.0909,
-          "delta": 0.0505,
+          "delta": 0.0101,
           "confidence": "未证实",
-          "z_score": 0.581
+          "z_score": 0.12
         },
         "frequency": {
           "sample_count": 100,
-          "average_hits": 1.23,
+          "average_hits": 1.21,
           "random_baseline": 1.0909,
-          "delta": 0.1391,
+          "delta": 0.1191,
           "confidence": "未证实",
-          "z_score": 1.52
+          "z_score": 1.343
         },
         "omission": {
+          "sample_count": 100,
+          "average_hits": 1.0,
+          "random_baseline": 1.0909,
+          "delta": -0.0909,
+          "confidence": "未证实",
+          "z_score": -1.016
+        },
+        "interval": {
+          "sample_count": 100,
+          "average_hits": 1.02,
+          "random_baseline": 1.0909,
+          "delta": -0.0709,
+          "confidence": "未证实",
+          "z_score": -0.901
+        },
+        "linear_score": {
           "sample_count": 100,
           "average_hits": 1.03,
           "random_baseline": 1.0909,
           "delta": -0.0609,
           "confidence": "未证实",
-          "z_score": -0.686
-        },
-        "interval": {
-          "sample_count": 100,
-          "average_hits": 1.07,
-          "random_baseline": 1.0909,
-          "delta": -0.0209,
-          "confidence": "未证实",
-          "z_score": -0.26
-        },
-        "linear_score": {
-          "sample_count": 100,
-          "average_hits": 1.05,
-          "random_baseline": 1.0909,
-          "delta": -0.0409,
-          "confidence": "未证实",
-          "z_score": -0.525
+          "z_score": -0.768
         }
       }
     },
@@ -84,19 +84,19 @@
         },
         "frequency": {
           "sample_count": 100,
-          "average_hits": 0.07,
+          "average_hits": 0.06,
           "random_baseline": 0.0625,
-          "delta": 0.0075,
+          "delta": -0.0025,
           "confidence": "未证实",
-          "z_score": 0.294
+          "z_score": -0.105
         },
         "omission": {
           "sample_count": 100,
-          "average_hits": 0.01,
+          "average_hits": 0.02,
           "random_baseline": 0.0625,
-          "delta": -0.0525,
+          "delta": -0.0425,
           "confidence": "较弱",
-          "z_score": -5.276
+          "z_score": -3.036
         },
         "interval": {
           "sample_count": 100,
@@ -130,32 +130,32 @@
         "random_baseline": 2.5,
         "delta": 0.23,
         "confidence": "未证实",
-        "z_score": 1.725
+        "z_score": 1.653
       },
       "candidates": {
         "model": {
           "sample_count": 99,
-          "average_hits": 2.4747,
+          "average_hits": 2.3838,
           "random_baseline": 2.5,
-          "delta": -0.0253,
+          "delta": -0.1162,
           "confidence": "未证实",
-          "z_score": -0.197
+          "z_score": -0.974
         },
         "frequency": {
           "sample_count": 100,
-          "average_hits": 2.33,
+          "average_hits": 2.42,
           "random_baseline": 2.5,
-          "delta": -0.17,
+          "delta": -0.08,
           "confidence": "未证实",
-          "z_score": -1.406
+          "z_score": -0.68
         },
         "omission": {
           "sample_count": 100,
-          "average_hits": 2.63,
+          "average_hits": 2.64,
           "random_baseline": 2.5,
-          "delta": 0.13,
+          "delta": 0.14,
           "confidence": "未证实",
-          "z_score": 1.024
+          "z_score": 1.058
         },
         "interval": {
           "sample_count": 100,
@@ -163,15 +163,15 @@
           "random_baseline": 2.5,
           "delta": 0.23,
           "confidence": "未证实",
-          "z_score": 1.725
+          "z_score": 1.653
         },
         "linear_score": {
           "sample_count": 100,
-          "average_hits": 2.43,
+          "average_hits": 2.56,
           "random_baseline": 2.5,
-          "delta": -0.07,
+          "delta": 0.06,
           "confidence": "未证实",
-          "z_score": -0.536
+          "z_score": 0.465
         }
       }
     }
@@ -189,7 +189,7 @@
         "random_baseline": 0.7143,
         "delta": 0.1039,
         "confidence": "未证实",
-        "z_score": 1.366
+        "z_score": 1.342
       },
       "candidates": {
         "model": {
@@ -198,7 +198,7 @@
           "random_baseline": 0.7143,
           "delta": 0.1039,
           "confidence": "未证实",
-          "z_score": 1.366
+          "z_score": 1.342
         },
         "frequency": {
           "sample_count": 100,
@@ -210,27 +210,27 @@
         },
         "omission": {
           "sample_count": 100,
-          "average_hits": 0.67,
+          "average_hits": 0.68,
           "random_baseline": 0.7143,
-          "delta": -0.0443,
+          "delta": -0.0343,
           "confidence": "未证实",
-          "z_score": -0.682
+          "z_score": -0.507
         },
         "interval": {
           "sample_count": 100,
-          "average_hits": 0.7,
+          "average_hits": 0.66,
           "random_baseline": 0.7143,
-          "delta": -0.0143,
+          "delta": -0.0543,
           "confidence": "未证实",
-          "z_score": -0.204
+          "z_score": -0.797
         },
         "linear_score": {
           "sample_count": 100,
-          "average_hits": 0.74,
+          "average_hits": 0.69,
           "random_baseline": 0.7143,
-          "delta": 0.0257,
+          "delta": -0.0243,
           "confidence": "未证实",
-          "z_score": 0.329
+          "z_score": -0.332
         }
       }
     },
@@ -242,20 +242,20 @@
       "confidence": "未证实",
       "selected_stats": {
         "sample_count": 99,
-        "average_hits": 0.3939,
+        "average_hits": 0.3737,
         "random_baseline": 0.3333,
-        "delta": 0.0606,
+        "delta": 0.0404,
         "confidence": "未证实",
-        "z_score": 1.185
+        "z_score": 0.797
       },
       "candidates": {
         "model": {
           "sample_count": 99,
-          "average_hits": 0.3939,
+          "average_hits": 0.3737,
           "random_baseline": 0.3333,
-          "delta": 0.0606,
+          "delta": 0.0404,
           "confidence": "未证实",
-          "z_score": 1.185
+          "z_score": 0.797
         },
         "frequency": {
           "sample_count": 100,
@@ -275,19 +275,19 @@
         },
         "interval": {
           "sample_count": 100,
-          "average_hits": 0.37,
+          "average_hits": 0.36,
           "random_baseline": 0.3333,
-          "delta": 0.0367,
+          "delta": 0.0267,
           "confidence": "未证实",
-          "z_score": 0.702
+          "z_score": 0.513
         },
         "linear_score": {
           "sample_count": 100,
-          "average_hits": 0.38,
+          "average_hits": 0.35,
           "random_baseline": 0.3333,
-          "delta": 0.0467,
+          "delta": 0.0167,
           "confidence": "未证实",
-          "z_score": 0.923
+          "z_score": 0.349
         }
       }
     }

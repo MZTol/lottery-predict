@@ -3,6 +3,7 @@ from datetime import datetime
 from collections import Counter
 from strategy import ALGORITHM_VERSION, choose_recommendation, strategy_detail, strategy_label
 from model_registry import explain_numbers
+from prediction_store import expert_recommendation
 
 REPORTS_DIR = os.path.join(os.path.dirname(__file__), "reports")
 
@@ -73,6 +74,19 @@ def _style():
         .today-badge { background: #16213e; color: #fff; border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 800; white-space: nowrap; }
         .today-rec { margin: 6px 0 8px; }
         .today-rec .num { font-size: 16px; padding: 2px 5px; }
+        .decision-list { display: grid; gap: 8px; margin: 10px 0 12px; }
+        .decision-row { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 10px; align-items: start; padding: 9px 10px; border: 1px solid #d8dde6; border-left: 4px solid #6b7280; border-radius: 6px; background: #fafafa; }
+        .decision-row.primary { border-left-color: #111827; background: #f8fafc; }
+        .decision-row.expert { border-left-color: #16794b; background: #f2fbf6; }
+        .decision-row.avoid { border-left-color: #b42318; background: #fff6f5; }
+        .decision-row.contrarian { border-left-color: #6b7280; background: #f7f7f8; }
+        .decision-label { color: #374151; font-size: 12px; font-weight: 900; line-height: 1.8; }
+        .decision-row.primary .decision-label { color: #111827; }
+        .decision-row.expert .decision-label { color: #12633e; }
+        .decision-row.avoid .decision-label { color: #9f1c14; }
+        .decision-values { min-width: 0; }
+        .decision-values .num { font-size: 16px; font-variant-numeric: tabular-nums; }
+        .decision-empty { color: #6b7280; font-size: 13px; line-height: 1.8; }
         .today-lines { display: grid; gap: 6px; margin-top: 8px; }
         .today-line { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 8px; align-items: start; color: #555; font-size: 12px; }
         .today-line b { color: #16213e; }
@@ -142,6 +156,8 @@ def _style():
             h2 { font-size: 16px; margin-top: 20px; }
             h3 { font-size: 15px; }
             table { font-size: 11px; }
+            .decision-row { grid-template-columns: 72px minmax(0, 1fr); gap: 6px; padding: 8px; }
+            .decision-values .num { font-size: 15px; padding: 2px 4px; }
             th, td { padding: 3px 4px; }
             .num { font-size: 13px; padding: 1px 3px; }
             .group-box { padding: 8px 10px; }
@@ -320,7 +336,7 @@ def _source_label(name):
 
 def _source_note(name):
     return {
-        "hot": "采样频次最高，是直接购买号码的主要来源。",
+        "hot": "模型采样频次最高，是主推号码的主要来源。",
         "cold": "采样中出现过但频次偏低，只作为补充观察。",
         "kill_a": "从中间区间随机抽取，用于增加覆盖，不参与主推排序。",
         "kill_b": "中间区间里频次较高的候选，不参与主推排序。",
@@ -373,7 +389,7 @@ def _predictions_table(predictions, counters, actual_set):
     return f"""
 <details class="source-details">
   <summary>推荐来源参考（默认折叠）</summary>
-  <p class="source-note">这里只解释五组候选来源；直接购买号码会按当前彩种策略从综合模型、近期高频或当前遗漏中选择。</p>
+  <p class="source-note">以下仅展示模型候选；本期主推以首屏结果为准。</p>
   {_source_explanation_section(predictions, Counter())}
 </details>
 """
@@ -448,7 +464,7 @@ def _manual_trend_row(total_n):
     return f'<tr><th class="trend-label">自选号码<br><span class="meta" data-manual-count>0个</span></th>{cells}</tr>'
 
 
-def _prediction_history_comparison(data, field, predictions, counter, pick, periods=10, total_n=None, lotid=None, cfg=None):
+def _prediction_history_comparison(data, field, predictions, counter, pick, periods=10, total_n=None, lotid=None, cfg=None, expert_data=None):
     total_n = _trend_total_n(data, field, predictions, total_n)
     if not total_n:
         return '<p class="meta">暂无可对比号码。</p>'
@@ -457,6 +473,7 @@ def _prediction_history_comparison(data, field, predictions, counter, pick, peri
     rec, strategy = choose_recommendation(
         lotid, field, predictions, counter, cfg, history=data, use_saved_selection=True
     )
+    rec = expert_recommendation(rec, predictions, counter, expert_data, {**cfg, "field": field})["recommendation"]
 
     header = "".join(f'<th class="trend-num">{n:02d}</th>' for n in range(1, total_n + 1))
     draw_rows = []
@@ -574,7 +591,7 @@ def _evaluation_lookup(evaluation):
     return result
 
 
-def _key_summary_section(data, areas, evaluation=None, lotid=None):
+def _key_summary_section(data, areas, evaluation=None, lotid=None, expert_data=None):
     eval_by_field = _evaluation_lookup(evaluation)
     cards = []
     for label, field, predictions, counter, cfg in areas:
@@ -583,10 +600,11 @@ def _key_summary_section(data, areas, evaluation=None, lotid=None):
         rec, strategy = choose_recommendation(
             lotid, field, predictions, counter, cfg, history=data, use_saved_selection=True
         )
+        expert_info = expert_recommendation(
+            rec, predictions, counter, expert_data, {**cfg, "field": field}
+        )
+        rec = expert_info["recommendation"]
         detail = strategy_detail(lotid, field)
-        best = _best_recent_match(data, field, rec, 10)
-        omissions = _top_omissions(data, field, total_n, min(5, total_n))
-        omit_text = " ".join(f"{n:02d}<span class=\"meta\">({o})</span>" for n, o in omissions)
         rec_eval = eval_by_field.get(field)
         if rec_eval:
             predicted_count = len(rec_eval.get("predicted", [])) or pick
@@ -595,21 +613,40 @@ def _key_summary_section(data, areas, evaluation=None, lotid=None):
         else:
             review_html = "暂无上期开奖复盘"
             review_miss = "本次运行后会保存预测，下一期开奖后自动对比"
-        best_html = f"{best['period']}期，重号 {best['hit_count']} 个: {_fmt_nums(best['hits'])}" if best else "暂无"
+        expert_rows = ""
+        if expert_info["expert_count"]:
+            expert_rows = f"""
+  <div class="decision-row expert">
+    <div class="decision-label">专家推荐</div>
+    <div class="decision-values">{_fmt_nums(expert_info['consensus'])}</div>
+  </div>
+  <div class="decision-row avoid">
+    <div class="decision-label">专家避雷</div>
+    <div class="decision-values">{_fmt_nums(expert_info['avoid']) if expert_info['avoid'] else '<span class="decision-empty">无明确避雷</span>'}</div>
+  </div>
+  <div class="decision-row contrarian">
+    <div class="decision-label">反向实验</div>
+    <div class="decision-values">{_fmt_nums(expert_info['contrarian'])}</div>
+  </div>
+"""
         cards.append(f"""
 <div class="today-card">
   <div class="today-head">
     <div class="today-title">{_purchase_title(label)}</div>
     <div class="today-badge">{pick}/{total_n}</div>
   </div>
-  <div class="today-rec">{_fmt_nums(rec)}</div>
+  <div class="decision-list">
+    <div class="decision-row primary">
+      <div class="decision-label">本期主推</div>
+      <div class="decision-values">{_fmt_nums(rec)}</div>
+    </div>
+    {expert_rows}
+  </div>
   <div class="today-lines">
     <div class="today-line"><b>上期</b><span>{review_html}<br><span class="meta">{review_miss}</span></span></div>
-    <div class="today-line"><b>策略</b><span>{strategy_label(strategy)}，{detail.get('selection_source', '默认策略')}，信心：{detail.get('confidence', '未开始动态选择')}</span></div>
-    <div class="today-line"><b>说明</b><span>这组号码就是本期直接可用的购买号码，不再拆成多层。</span></div>
+    <div class="today-line"><b>模型</b><span>{strategy_label(strategy)}{(' + 专家低权重' if expert_info['expert_count'] else '')}</span></div>
+    <div class="today-line"><b>状态</b><span>{'继续观察' if detail.get('confidence') in ('未证实', '样本不足') else detail.get('confidence', '继续观察')}</span></div>
     <div class="today-line"><b>结构</b><span>和值 {sum(rec)}，奇偶 {sum(1 for n in rec if n % 2 == 1)}:{pick - sum(1 for n in rec if n % 2 == 1)}</span></div>
-    <div class="today-line"><b>相似</b><span>{best_html}</span></div>
-    <div class="today-line"><b>遗漏</b><span>{omit_text}</span></div>
   </div>
 </div>
 """)
@@ -617,7 +654,7 @@ def _key_summary_section(data, areas, evaluation=None, lotid=None):
             continue
 
     return f"""
-<h2>今日结论</h2>
+<h2>本期号码</h2>
 <div class="today-grid">
 {''.join(cards)}
 </div>
@@ -724,6 +761,7 @@ def _expert_section_html(experts, all_picks, labels, recommendations=None):
     cons_b = bc.most_common(6)
     cons_f_nums = [n for n, _ in cons_f]
     cons_b_nums = [n for n, _ in cons_b]
+    avoid_nums = sorted(set(int(n) for n in all_picks.get("avoid_front", [])))[:10]
     max_fc = max((c for _, c in cons_f), default=1)
     max_bc = max((c for _, c in cons_b), default=1)
 
@@ -735,7 +773,7 @@ def _expert_section_html(experts, all_picks, labels, recommendations=None):
 <div class="expert-overlap-card">
   <div class="title">{label_f}专家共识 vs 购买号码</div>
   <div>重合 {len(overlap)} 个: {_fmt_nums(overlap)}</div>
-  <div class="meta">仅作为外部参考，未参与直接购买号码排序。</div>
+  <div class="meta">专家信号仅以低权重参与融合。</div>
 </div>
 """)
     back_rec = recommendations.get("back") or []
@@ -745,7 +783,7 @@ def _expert_section_html(experts, all_picks, labels, recommendations=None):
 <div class="expert-overlap-card">
   <div class="title">{label_b}专家共识 vs 购买号码</div>
   <div>重合 {len(overlap)} 个: {_fmt_nums(overlap)}</div>
-  <div class="meta">仅作为外部参考，未参与直接购买号码排序。</div>
+  <div class="meta">专家信号仅以低权重参与融合。</div>
 </div>
 """)
 
@@ -765,14 +803,19 @@ def _expert_section_html(experts, all_picks, labels, recommendations=None):
         {''.join(cons_rows)}
     </table>
     """
+    avoid_html = (
+        f'<h3>专家明确避雷参考</h3><p class="meta">{_fmt_nums(avoid_nums)}</p>'
+        if avoid_nums else ""
+    )
 
     return f"""
     <details class="expert-block">
-      <summary>专家外部参考（{len(experts)} 位，默认折叠）</summary>
-      <p class="expert-note">专家内容不参与直接购买号码，仅用于观察外部共识和购买号码是否重合；后续复盘会单独评估专家共识是否强于随机。</p>
+      <summary>专家明细（{len(experts)} 位）</summary>
+      <p class="expert-note">专家推荐只占低权重；明确杀号列入避雷，结果单独复盘。</p>
       <div class="expert-overlap">{''.join(overlap_blocks) or '<p class="meta">暂无可计算的专家共识重合。</p>'}</div>
       <h3>专家共识（{label_f} Top 10 + {label_b} Top 6）</h3>
       {consensus_table}
+      {avoid_html}
       <h3>专家原始推荐</h3>
       {expert_table}
     </details>
@@ -785,8 +828,10 @@ GROUP_LABELS = {
     "kill_a": "中间候选A(随机)",
     "kill_b": "中间候选B(高频)",
     "kill_c": "中间候选C(等距)",
-    "recommendation": "直接购买",
+    "recommendation": "本期主推",
     "expert_consensus": "专家共识",
+    "expert_avoid": "专家避雷",
+    "expert_contrarian": "专家反向实验",
 }
 
 
@@ -797,20 +842,20 @@ def _fmt_nums(nums):
 
 
 def _purchase_title(label):
-    return "直接购买号码" if not label or label == "号码" else f"{label}直接购买号码"
+    return "号码" if not label or label == "号码" else label
 
 
 def _evaluation_section_html(evaluation):
     if not evaluation:
         return """
 <hr>
-<h2>🧾 上期预测复盘</h2>
+<h2>上期复盘</h2>
 <p class="meta">没有找到本期对应的历史预测记录；从本次运行开始会保存预测，下一期开奖后可自动复盘。</p>
 """
 
     html = f"""
 <hr>
-<h2>🧾 上期预测复盘</h2>
+<h2>上期复盘</h2>
 <p class="meta">复盘期号: {evaluation['period']}期  |  预测生成: {evaluation.get('generated_at') or '未知'}  |  seed: {evaluation.get('seed')}</p>
 """
     for area in evaluation.get("areas", []):
@@ -891,13 +936,13 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
     html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>{lot_name} {next_period}期 预测报告</title>{_style()}</head>
 <body>
-<h1>🎯 {lot_name} {next_period}期 预测报告</h1>
+<h1>{lot_name} {next_period}期</h1>
 <p class="meta">生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  seed: {seed}  |  算法: {ALGORITHM_VERSION}</p>
 <p class="meta">数据: {len(data)} 期历史  |  最新开奖: {latest_draw['period']}期</p>
 {_data_status_section(data_status)}
 """
 
-    html += _key_summary_section(data, areas, evaluation, lotid)
+    html += _key_summary_section(data, areas, evaluation, lotid, expert_data)
     html += _evaluation_section_html(evaluation)
 
     for label, field, predictions, counter, cfg in areas:
@@ -907,27 +952,27 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 
         html += f"""
 <hr>
-<h2>📌 {label}（{pick}/{total_n}）</h2>
+<h2>{label}分析（选{pick} / 共{total_n}）</h2>
 <p class="meta">总采样: {sum(counter.values())} 次</p>
 
-<h3>🔎 本期预测 vs 最近10期开奖</h3>
-{_prediction_history_comparison(data, field, predictions, counter, pick, 10, total_n, lotid, cfg)}
+<h3>主推与最近10期</h3>
+{_prediction_history_comparison(data, field, predictions, counter, pick, 10, total_n, lotid, cfg, expert_data)}
 
-<h3>📊 最近10期走势</h3>
+<h3>最近10期走势</h3>
 <div class="matrix">{_history_matrix(data, field, total_n, 10)}</div>
 
 <div style="display:flex;gap:16px;flex-wrap:wrap">
 <div style="flex:1;min-width:280px">
-<h3>🔴 遗漏 Top 10</h3>
+<h3>遗漏最多的10个号码</h3>
 {_omission_bar(data, field, total_n)}
 </div>
 <div style="flex:1;min-width:280px">
-<h3>📈 采样频次 TOP {min(12, total_n)}</h3>
+<h3>模型高频前{min(12, total_n)}名</h3>
 {_freq_chart(counter, total_n, min(12, total_n))}
 </div>
 </div>
 
-<h3>📋 推荐来源参考</h3>
+<h3>模型候选明细</h3>
 {_predictions_table(predictions, counter, actual_set)}
 
 <h3>低覆盖号码参考</h3>
@@ -949,6 +994,11 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
             )[0]
             for _, field, predictions, counter, cfg in areas
         }
+        for _, field, predictions, counter, cfg in areas:
+            recommendations_by_field[field] = expert_recommendation(
+                recommendations_by_field[field], predictions, counter, expert_data,
+                {**cfg, "field": field}
+            )["recommendation"]
         for ed in expert_data:
             label, experts, all_picks = ed
             lbl_pair = {"前区": ("前区", "后区"), "后区": ("前区", "后区"), "红球": ("红球", "蓝球"), "蓝球": ("红球", "蓝球")}
@@ -956,7 +1006,7 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 
     html += """
 <hr>
-<h2>⭐ 直接购买号码</h2>
+<h2>号码明细</h2>
 <div style="display:flex;flex-wrap:wrap;gap:16px">
 """
 
@@ -966,16 +1016,22 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
         rec, strategy = choose_recommendation(
             lotid, field, predictions, counter, cfg, history=data, use_saved_selection=True
         )
+        expert_info = expert_recommendation(
+            rec, predictions, counter, expert_data, {**cfg, "field": field}
+        )
+        rec = expert_info["recommendation"]
         reasons_html = _number_reason_rows(rec, data, cfg, predictions, counter)
         rs = sum(rec)
         rodd = sum(1 for n in rec if n % 2 == 1)
         rspan = max(rec) - min(rec)
         html += f"""
 <div class="group-box" style="flex:1;min-width:250px">
-<div><b>{_purchase_title(label)}（{strategy_label(strategy)}）</b></div>
+<div><b>{_purchase_title(label)}主推（{strategy_label(strategy)}）</b></div>
 <div class="today-rec">{_fmt_nums(rec)}</div>
 {reasons_html}
 <p class="meta">和值{rs} 奇偶{rodd}:{pick-rodd} 跨度{rspan}</p>
+{('<p class="meta">专家共识: ' + _fmt_nums(expert_info['consensus']) + '</p>') if expert_info['consensus'] else ''}
+{('<p class="meta">专家避雷: ' + _fmt_nums(expert_info['avoid']) + '</p>') if expert_info['avoid'] else ''}
 </div>"""
 
     html += "</div></body></html>"
@@ -997,29 +1053,29 @@ def _build_html(data, latest_draw, predictions, counter, cfg, lotid, next_period
     html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>{lot_name} {next_period}期{area_str} 预测报告</title>{_style()}</head>
 <body>
-<h1>🎯 {lot_name} {next_period}期{area_str} 预测报告</h1>
+<h1>{lot_name} {next_period}期{area_str}</h1>
 <p class="meta">生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  seed: {seed}  |  总采样: {sum(counter.values())} 次</p>
 <p class="meta">数据: {len(data)} 期历史  |  选号: {pick}/{total_n}  |  最新开奖: {latest_draw['period']}期</p>
 {_data_status_section(data_status)}
 
 {_key_summary_section(data, [(label or "号码", field, predictions, counter, cfg)], None, lotid)}
 
-<h2>🔎 本期预测 vs 最近10期开奖</h2>
+<h2>主推与最近10期</h2>
 {_prediction_history_comparison(data, field, predictions, counter, pick, 10, total_n, lotid, cfg)}
 
-<h2>📊 最近10期走势</h2>
+<h2>最近10期走势</h2>
 <div class="matrix">{_history_matrix(data, field, total_n, 10)}</div>
 
-<h2>🔴 遗漏 Top 10（最冷号）</h2>
+<h2>遗漏最多的10个号码</h2>
 {_omission_bar(data, field, total_n)}
 
-<h2>📈 采样频次 TOP {min(15, total_n)}</h2>
+<h2>模型高频前{min(15, total_n)}名</h2>
 {_freq_chart(counter, total_n, min(15, total_n))}
 
-<h2>📋 推荐来源参考</h2>
+<h2>模型候选明细</h2>
 {_predictions_table(predictions, counter, actual_set)}
 
-<h2>⭐ 直接购买号码</h2>
+<h2>本期主推</h2>
 <div class="group-box">
 """
     rec, strategy = choose_recommendation(
@@ -1027,7 +1083,7 @@ def _build_html(data, latest_draw, predictions, counter, cfg, lotid, next_period
     )
     reasons_html = _number_reason_rows(rec, data, cfg, predictions, counter)
     html += f"""
-<div><b>直接购买号码（{strategy_label(strategy)}）</b></div>
+<div><b>主推（{strategy_label(strategy)}）</b></div>
 <div class="today-rec">{_fmt_nums(rec)}</div>
 {reasons_html}
 """
