@@ -270,12 +270,36 @@ class CoreLogicTests(unittest.TestCase):
         self.assertIn('data-manual-cell data-number="04"', html)
         self.assertIn('role="button"', html)
         self.assertNotIn("本期最终分层", html)
-        self.assertIn("主推中", html)
+        self.assertIn("当前主推回看", html)
         self.assertIn("trend-draw", html)
         self.assertIn("trend-rec", html)
         self.assertIn("01", html)
         self.assertIn("09", html)
         self.assertIn('<td class="trend-cell trend-empty"><span>04</span></td>', html)
+
+    def test_prediction_history_comparison_uses_saved_prediction_when_available(self):
+        data = [
+            {"period": "004", "numbers": ["01", "03", "05"]},
+            {"period": "003", "numbers": ["02", "04", "06"]},
+        ]
+        predictions = {"hot": ["01", "02", "03"], "cold": ["04", "05", "06"]}
+        counter = Counter({1: 5, 2: 4, 3: 3})
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filename = os.path.join(tmpdir, "predictions_history.json")
+            with open(filename, "w") as f:
+                import json
+                json.dump({"kl8": {"004": {"areas": {"numbers": {
+                    "field": "numbers", "recommendation": ["01", "02", "04"]
+                }}}}}, f)
+            with patch("report.PREDICTIONS_FILE", filename):
+                html = report._prediction_history_comparison(
+                    data, "numbers", predictions, counter, pick=3,
+                    periods=2, total_n=9, lotid="kl8",
+                    cfg={"field": "numbers", "total": 9, "pick": 3, "zones": 2},
+                )
+
+        self.assertIn("上期预测中1", html)
+        self.assertIn("当前主推回看", html)
 
     def test_recommendation_uses_sampling_counter_not_group_vote(self):
         predictions = {
@@ -382,9 +406,22 @@ class CoreLogicTests(unittest.TestCase):
 
         self.assertEqual(
             set(candidates),
-            {"model", "frequency", "omission", "interval", "linear_score"},
+            {"model", "frequency", "omission", "interval", "linear_score", "nearest_draw"},
         )
         self.assertTrue(all(len(nums) == 3 for nums in candidates.values()))
+
+    def test_nearest_draw_model_votes_from_the_following_known_draw(self):
+        history = [
+            {"period": "004", "numbers": ["01", "02"]},
+            {"period": "003", "numbers": ["08", "09"]},
+            {"period": "002", "numbers": ["01", "02"]},
+            {"period": "001", "numbers": ["10", "11"]},
+        ]
+        cfg = {"field": "numbers", "total": 12, "pick": 2, "zones": 3}
+
+        predicted = model_registry.nearest_draw_predict(history, cfg)
+
+        self.assertEqual(predicted, [8, 9])
 
     def test_prediction_output_validation_rejects_wrong_count_and_range(self):
         cfg = {"field": "numbers", "total": 10, "pick": 3}

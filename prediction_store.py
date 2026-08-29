@@ -15,6 +15,7 @@ from strategy import (
 
 DIR = os.path.dirname(__file__)
 PREDICTIONS_FILE = os.path.join(DIR, "predictions_history.json")
+EXPERT_SIGNAL_WEIGHT = 0.10
 
 
 def _load_store(filename=PREDICTIONS_FILE):
@@ -26,6 +27,11 @@ def _load_store(filename=PREDICTIONS_FILE):
         except (JSONDecodeError, OSError):
             return {}
     return {}
+
+
+def load_prediction_store(filename=PREDICTIONS_FILE):
+    """Load saved predictions for report-time historical comparisons."""
+    return _load_store(filename)
 
 
 def _save_store(store, filename=PREDICTIONS_FILE):
@@ -185,7 +191,11 @@ def expert_recommendation(base, predictions, counter, expert_data, cfg, reliabil
     for n in range(1, total + 1):
         expert_score = positive[n] / max_positive if positive else 0.0
         avoid_score = negative[n] / max_negative if negative else 0.0
-        score = base_rank[n] * 0.85 + expert_score * 0.15 - avoid_score * 0.15
+        score = (
+            base_rank[n] * (1.0 - EXPERT_SIGNAL_WEIGHT)
+            + expert_score * EXPERT_SIGNAL_WEIGHT
+            - avoid_score * EXPERT_SIGNAL_WEIGHT
+        )
         scores.append((score, -n, n))
     recommendation = sorted(n for _, _, n in sorted(scores, reverse=True)[:pick])
     contrarian_pool = [n for _, _, n in sorted(scores, reverse=True) if n not in set(consensus) and n not in set(avoid)]

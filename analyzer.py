@@ -425,15 +425,38 @@ def tune_weights_stepwise(data, cfg, window=30):
 
 
 def tune_weights(data, cfg):
-    """多窗口逐步调优：尝试多个训练窗口，返回最优结果"""
+    """Tune on older draws and select the window on a newer holdout block."""
+    holdout_count = BACKTEST_COUNT
+    if len(data) < holdout_count + max(WINDOWS) + 10:
+        # Small synthetic/test datasets cannot support a clean split.
+        tuning_data = data
+        holdout_entries_by_window = None
+    else:
+        tuning_data = data[holdout_count:]
+        holdout_entries_by_window = {
+            window: _backtest_window_dims(data, cfg, window, holdout_count)
+            for window in WINDOWS
+        }
+
     best_avg = 0
     best_wt = dict(DEFAULT_WEIGHTS)
     best_window = 30
     for w in WINDOWS:
-        avg, wt = tune_weights_stepwise(data, cfg, w)
-        if avg > best_avg:
-            best_avg = avg
-            best_wt = wt
+        tuning_avg, tuned_wt = tune_weights_stepwise(tuning_data, cfg, w)
+        if holdout_entries_by_window is None:
+            score = tuning_avg
+            candidate_wt = tuned_wt
+        else:
+            # Shrink toward the stable defaults before evaluating unseen
+            # recent periods. This reduces short-window parameter chasing.
+            candidate_wt = {
+                name: DEFAULT_WEIGHTS[name] * 0.5 + tuned_wt[name] * 0.5
+                for name in DEFAULT_WEIGHTS
+            }
+            score = _eval_weights(holdout_entries_by_window[w], cfg, candidate_wt)
+        if score > best_avg:
+            best_avg = score
+            best_wt = candidate_wt
             best_window = w
     return best_avg, best_wt, best_window
 

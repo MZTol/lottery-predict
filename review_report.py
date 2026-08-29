@@ -44,6 +44,7 @@ GROUP_LABELS = {
     "baseline_omission": "当前遗漏",
     "interval": "区间模型",
     "linear_score": "线性评分",
+    "nearest_draw": "相似期开奖",
     "expert_consensus": "专家共识",
     "expert_avoid": "专家避雷",
     "expert_contrarian": "专家反向实验",
@@ -56,6 +57,7 @@ PRIMARY_GROUPS = (
     "baseline_omission",
     "interval",
     "linear_score",
+    "nearest_draw",
     "expert_consensus",
     "expert_avoid",
     "expert_contrarian",
@@ -63,7 +65,7 @@ PRIMARY_GROUPS = (
 REPLAY_TARGET_PERIODS = 100
 REPLAY_MIN_TRAIN = 20
 REPLAY_CACHE_FILE = os.path.join(DIR, "replay_predictions_cache.json")
-REPLAY_ALGO_VERSION = "model-registry-v1"
+REPLAY_ALGO_VERSION = "model-registry-v2"
 
 
 def _load_json(filename, default):
@@ -444,6 +446,7 @@ def _add_replay_rows(lotid, history, records, rows, summaries, target_periods=RE
                 "baseline_omission": candidates["omission"],
                 "interval": candidates["interval"],
                 "linear_score": candidates["linear_score"],
+                "nearest_draw": candidates["nearest_draw"],
             }
             for group_name, predicted in groups.items():
                 _add_comparison(
@@ -512,6 +515,7 @@ def _update_strategy_selection(lotid, records, summaries):
         "omission": "baseline_omission",
         "interval": "interval",
         "linear_score": "linear_score",
+        "nearest_draw": "nearest_draw",
     }
 
     for label, field, cfg in _review_area_configs(lotid, records):
@@ -527,7 +531,7 @@ def _update_strategy_selection(lotid, records, summaries):
         eligible = {
             strategy: item
             for strategy, item in stats.items()
-            if item["sample_count"] >= 30
+            if item["sample_count"] >= 50 and item.get("confidence") == "较强"
         }
         if eligible:
             best_strategy, best_stats = max(
@@ -535,10 +539,7 @@ def _update_strategy_selection(lotid, records, summaries):
                 key=lambda item: (item[1]["delta"], item[1]["average_hits"]),
             )
             default_delta = default_stats["delta"] if default_stats else 0.0
-            if (
-                best_stats["delta"] >= 0.05
-                and best_stats["delta"] >= default_delta + 0.05
-            ):
+            if best_stats["delta"] >= 0.08 and best_stats["delta"] >= default_delta + 0.05:
                 selected = best_strategy
 
         selected_stats = stats.get(selected, {
@@ -549,10 +550,16 @@ def _update_strategy_selection(lotid, records, summaries):
             "confidence": "样本不足",
             "z_score": None,
         })
+        effective_strategy = selected if (
+            selected_stats.get("confidence") == "较强"
+            and selected_stats.get("sample_count", 0) >= 50
+        ) else "model"
         selection[lotid][field] = {
             "selected_strategy": selected,
             "strategy_label": strategy_label(selected),
-            "selection_source": "100期回放动态选择",
+            "effective_strategy": effective_strategy,
+            "effective_strategy_label": strategy_label(effective_strategy),
+            "selection_source": f"最多{REPLAY_TARGET_PERIODS}期回放动态选择",
             "sample_count": selected_stats["sample_count"],
             "confidence": selected_stats["confidence"],
             "selected_stats": selected_stats,
@@ -607,6 +614,7 @@ def build_review(lotid, prediction_store=None, history=None):
                 groups.setdefault("baseline_omission", replay_candidates["omission"])
                 groups.setdefault("interval", replay_candidates["interval"])
                 groups.setdefault("linear_score", replay_candidates["linear_score"])
+                groups.setdefault("nearest_draw", replay_candidates["nearest_draw"])
             if area.get("expert_consensus"):
                 groups["expert_consensus"] = area["expert_consensus"]
             if area.get("expert_avoid"):
@@ -890,6 +898,52 @@ def _plain_review_summary(review):
     return f'<div class="plain-grid">{"".join(cards)}</div>'
 
 
+def _closest_replay_results(review, limit_per_group=3):
+    """Show the closest walk-forward outcomes without cherry-picking all models."""
+    blocks = []
+    rows_by_key = defaultdict(list)
+    for row in review["rows"]:
+        if row["group"] in {"recommendation", "nearest_draw"}:
+            rows_by_key[(row["area"], row["group"])].append(row)
+
+    for (area, group), rows in sorted(rows_by_key.items()):
+        closest = sorted(
+            rows,
+            key=lambda row: (row["hit_count"], row["delta"], _num_key(row["period"])),
+            reverse=True,
+        )[:limit_per_group]
+        result_rows = []
+        for row in closest:
+            result_rows.append(f"""
+<div class="plain-card">
+  <div class="plain-head">
+    <div class="plain-title">{row['period']}期</div>
+    <div class="plain-score">中 {row['hit_count']}/{len(row['predicted'])}</div>
+  </div>
+  <div class="plain-lines">
+    <div class="plain-line"><b>预测</b><span>{_fmt_nums(row['predicted'])}</span></div>
+    <div class="plain-line"><b>开奖</b><span>{_fmt_nums(row['actual'])}</span></div>
+    <div class="plain-line"><b>命中</b><span>{_fmt_nums(row['hits'])}</span></div>
+    <div class="plain-line"><b>漏掉</b><span>{_fmt_nums(row['uncovered'])}</span></div>
+  </div>
+</div>
+""")
+        blocks.append(f"""
+<div class="plain-card">
+  <div class="plain-head">
+    <div class="plain-title">{area} · {GROUP_LABELS.get(group, group)}</div>
+  </div>
+  <div class="plain-grid">{''.join(result_rows)}</div>
+</div>
+""")
+    if not blocks:
+        return '<p class="meta">暂无历史回测对比。</p>'
+    return (
+        '<p class="meta">这里只列各模型历史上最接近实际的几期；是否有效仍以100期平均成绩和随机基线为准。</p>'
+        f'<div class="plain-grid">{"".join(blocks)}</div>'
+    )
+
+
 def _detail_table(review, limit=80):
     rows = []
     for row in review["rows"][:limit]:
@@ -938,13 +992,20 @@ def _strategy_selection_html(review):
             f"{strategy_label(name)} {stats.get('delta', 0):+.2f}"
             for name, stats in candidates.items()
         )
+        effective_strategy = item.get("effective_strategy") or (
+            item.get("selected_strategy")
+            if item.get("confidence") == "较强" and item.get("sample_count", 0) >= 50
+            else "model"
+        )
+        effective_label = item.get("effective_strategy_label") or strategy_label(effective_strategy)
         cards.append(f"""
 <div class="plain-card">
   <div class="plain-head">
-    <div class="plain-title">{field}下一期策略：{item.get('strategy_label', '综合模型')}</div>
+    <div class="plain-title">{field}下一期实际策略：{effective_label}</div>
     <span class="verdict verdict-flat">{item.get('confidence', '样本不足')}</span>
   </div>
   <div class="plain-lines">
+    <div class="plain-line"><b>候选结果</b><span>{item.get('strategy_label', '综合模型')}</span></div>
     <div class="plain-line"><b>选择依据</b><span>{item.get('selection_source', '回放')}</span></div>
     <div class="plain-line"><b>样本</b><span>{item.get('sample_count', 0)}期</span></div>
     <div class="plain-line"><b>候选差值</b><span>{candidate_text or '暂无'}</span></div>
@@ -994,6 +1055,10 @@ def render_review_html(review):
     {_plain_review_summary(review)}
   </section>
   <section class="section">
+    <h2>历史上最接近实际的预测</h2>
+    {_closest_replay_results(review)}
+  </section>
+  <section class="section">
     <h2>长期统计</h2>
     {_summary_table(review)}
   </section>
@@ -1001,7 +1066,7 @@ def render_review_html(review):
     <h2>最近明细</h2>
     {_detail_table(review)}
   </section>
-  <p class="meta">说明：最终主推是主判断；不同彩种会按回放表现选择综合模型、近期高频或当前遗漏。平均命中高于随机基线才有参考价值；中间候选A/B/C只作为来源参考。</p>
+  <p class="meta">说明：最终主推是主判断；相似期开奖等候选模型必须通过滚动回测。平均命中高于随机基线才有参考价值；单期接近不代表下一期仍有效。</p>
 </main>
 </body>
 </html>

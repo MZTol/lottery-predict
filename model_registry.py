@@ -7,6 +7,7 @@ MODEL_LABELS = {
     "omission": "当前遗漏",
     "interval": "区间模型",
     "linear_score": "线性评分",
+    "nearest_draw": "相似期开奖",
 }
 
 
@@ -185,12 +186,77 @@ def linear_score_predict(history, cfg, context=None):
     return validate_prediction_output(nums, cfg, "linear_score")
 
 
+def _draw_similarity(left, right, total, zones=4):
+    """Compare two draws by overlap and coarse structure, not period number."""
+    left = set(left)
+    right = set(right)
+    if not left or not right:
+        return 0.0
+    overlap = len(left & right) / max(len(left), len(right))
+    max_sum_gap = max(1, total * max(len(left), len(right)))
+    sum_score = 1.0 - min(1.0, abs(sum(left) - sum(right)) / max_sum_gap)
+    odd_score = 1.0 - abs(sum(n % 2 for n in left) - sum(n % 2 for n in right)) / max(len(left), len(right))
+    zone_size = max(1, (total + zones - 1) // zones)
+
+    def zone_counts(nums):
+        counts = [0] * zones
+        for n in nums:
+            counts[min((n - 1) // zone_size, zones - 1)] += 1
+        return counts
+
+    left_zones = zone_counts(left)
+    right_zones = zone_counts(right)
+    zone_gap = sum(abs(a - b) for a, b in zip(left_zones, right_zones))
+    zone_score = 1.0 - min(1.0, zone_gap / max(1, len(left) + len(right)))
+    return overlap * 0.65 + sum_score * 0.15 + odd_score * 0.10 + zone_score * 0.10
+
+
+def nearest_draw_predict(history, cfg, context=None):
+    """Vote from outcomes following past draws most similar to the latest draw."""
+    history = history or []
+    total = int(cfg["total"])
+    pick = int(cfg["pick"])
+    field = cfg["field"]
+    zones = max(1, int(cfg.get("zones", 4) or 4))
+    if len(history) < 3:
+        return frequency_predict(history, cfg, context)
+
+    query = {int(n) for n in history[0].get(field, [])}
+    matches = []
+    # history is newest first. For an anchor at i, i-1 is the draw that
+    # happened immediately after it and is therefore its known outcome.
+    for i in range(1, len(history)):
+        anchor = {int(n) for n in history[i].get(field, [])}
+        outcome = {int(n) for n in history[i - 1].get(field, [])}
+        similarity = _draw_similarity(query, anchor, total, zones)
+        recency = 1.0 / (1.0 + i / 30.0)
+        matches.append((similarity, recency, -i, outcome))
+
+    neighbor_count = min(12, max(5, int(len(matches) ** 0.5)))
+    votes = defaultdict(float)
+    for similarity, recency, _, outcome in sorted(matches, reverse=True)[:neighbor_count]:
+        # Cubing prevents many structurally vague matches from overwhelming
+        # the few genuinely close draws.
+        weight = max(similarity, 0.01) ** 3 * (0.80 + recency * 0.20)
+        for n in outcome:
+            if 1 <= n <= total:
+                votes[n] += weight
+
+    recent = _frequency_counts(history, field, total, limit=30)
+    ranked = sorted(
+        range(1, total + 1),
+        key=lambda n: (-votes[n], -recent[n], n),
+    )
+    return validate_prediction_output(ranked[:pick], cfg, "nearest_draw")
+
+
 MODEL_REGISTRY = {
     "model": model_predict,
     "frequency": frequency_predict,
     "omission": omission_predict,
     "interval": interval_predict,
     "linear_score": linear_score_predict,
+    "nearest_draw": nearest_draw_predict,
 }
 
 
@@ -215,6 +281,7 @@ def explain_numbers(nums, history, cfg, context=None):
     recent_counts = _frequency_counts(history, field, total, limit=30)
     omission = _latest_omission(history, field, total)
     interval_set = set(interval_predict(history, cfg, context)) if history else set()
+    nearest_set = set(nearest_draw_predict(history, cfg, context)) if len(history) >= 3 else set()
     explanations = {}
     for n in sorted(int(v) for v in nums):
         tags = []
@@ -224,6 +291,8 @@ def explain_numbers(nums, history, cfg, context=None):
             tags.append(f"遗漏{omission[n]}期")
         if n in interval_set:
             tags.append("区间补位")
+        if n in nearest_set:
+            tags.append("相似期后续高频")
         tags.append("奇数" if n % 2 else "偶数")
         explanations[n] = tags[:4]
     return explanations

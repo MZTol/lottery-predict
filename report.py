@@ -2,8 +2,8 @@ import os
 from datetime import datetime
 from collections import Counter
 from strategy import ALGORITHM_VERSION, choose_recommendation, strategy_detail, strategy_label
-from model_registry import explain_numbers
-from prediction_store import expert_recommendation
+from model_registry import candidate_recommendations, explain_numbers
+from prediction_store import PREDICTIONS_FILE, _load_store, expert_recommendation
 
 REPORTS_DIR = os.path.join(os.path.dirname(__file__), "reports")
 
@@ -80,10 +80,12 @@ def _style():
         .decision-row.expert { border-left-color: #16794b; background: #f2fbf6; }
         .decision-row.avoid { border-left-color: #b42318; background: #fff6f5; }
         .decision-row.contrarian { border-left-color: #6b7280; background: #f7f7f8; }
+        .decision-row.experimental { border-left-color: #b26a00; background: #fff9ed; }
         .decision-label { color: #374151; font-size: 12px; font-weight: 900; line-height: 1.8; }
         .decision-row.primary .decision-label { color: #111827; }
         .decision-row.expert .decision-label { color: #12633e; }
         .decision-row.avoid .decision-label { color: #9f1c14; }
+        .decision-row.experimental .decision-label { color: #8a4f00; }
         .decision-values { min-width: 0; }
         .decision-values .num { font-size: 16px; font-variant-numeric: tabular-nums; }
         .decision-empty { color: #6b7280; font-size: 13px; line-height: 1.8; }
@@ -477,11 +479,23 @@ def _prediction_history_comparison(data, field, predictions, counter, pick, peri
 
     header = "".join(f'<th class="trend-num">{n:02d}</th>' for n in range(1, total_n + 1))
     draw_rows = []
+    saved_store = _load_store(PREDICTIONS_FILE) if lotid else {}
     rec_set = set(rec)
     for entry in reversed(data[:periods]):
         actual = sorted(int(n) for n in entry[field])
-        hits = len(set(actual) & rec_set)
-        draw_rows.append(_trend_row(str(entry["period"]), actual, total_n, "trend-draw", f"主推中{hits}"))
+        period_record = saved_store.get(lotid, {}).get(str(entry.get("period")), {})
+        saved_area = next(
+            (area for area in period_record.get("areas", {}).values() if area.get("field") == field),
+            None,
+        )
+        historical_rec = saved_area.get("recommendation") if saved_area else None
+        if historical_rec:
+            hits = len(set(actual) & {int(n) for n in historical_rec})
+            label_note = f"上期预测中{hits}"
+        else:
+            hits = len(set(actual) & rec_set)
+            label_note = f"当前主推回看{hits}"
+        draw_rows.append(_trend_row(str(entry["period"]), actual, total_n, "trend-draw", label_note))
 
     prediction_rows = [_trend_row(strategy_label(strategy), rec, total_n, "trend-rec")]
 
@@ -506,7 +520,7 @@ def _prediction_history_comparison(data, field, predictions, counter, pick, peri
   </tbody>
 </table>
 </div>
-<p class="meta">同一列代表同一个号码；开奖行左侧“主推中N”表示当前策略推荐与该期开奖号重合数量。自选号码保存在当前浏览器。</p>
+<p class="meta">同一列代表同一个号码；有保存预测的期次显示“上期预测中N”，没有保存预测的历史期次显示“当前主推回看N”，两者不是同一指标。自选号码保存在当前浏览器。</p>
 """
 
 
@@ -604,6 +618,9 @@ def _key_summary_section(data, areas, evaluation=None, lotid=None, expert_data=N
             rec, predictions, counter, expert_data, {**cfg, "field": field}
         )
         rec = expert_info["recommendation"]
+        nearest = candidate_recommendations(
+            predictions, counter, {**cfg, "field": field}, history=data
+        )["nearest_draw"]
         detail = strategy_detail(lotid, field)
         rec_eval = eval_by_field.get(field)
         if rec_eval:
@@ -639,6 +656,10 @@ def _key_summary_section(data, areas, evaluation=None, lotid=None, expert_data=N
     <div class="decision-row primary">
       <div class="decision-label">本期主推</div>
       <div class="decision-values">{_fmt_nums(rec)}</div>
+    </div>
+    <div class="decision-row experimental">
+      <div class="decision-label">历史相似<br>（实验）</div>
+      <div class="decision-values">{_fmt_nums(nearest)}</div>
     </div>
     {expert_rows}
   </div>

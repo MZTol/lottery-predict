@@ -8,6 +8,7 @@ from model_registry import (
     interval_predict,
     linear_score_predict,
     model_predict,
+    nearest_draw_predict,
     omission_predict,
     predict_model,
 )
@@ -17,7 +18,8 @@ STRATEGY_LABELS = dict(MODEL_LABELS)
 
 DIR = os.path.dirname(__file__)
 SELECTION_FILE = os.path.join(DIR, "strategy_selection.json")
-ALGORITHM_VERSION = "model-registry-v1"
+ALGORITHM_VERSION = "model-registry-v2"
+MIN_PROVEN_PERIODS = 50
 
 AREA_STRATEGIES = {
     ("kl8", "numbers"): "omission",
@@ -69,7 +71,7 @@ def strategy_for(lotid, field, use_saved_selection=True):
     # conservative production fallback until the selection is proven.
     confidence = entry.get("confidence")
     selected_stats = entry.get("selected_stats") or {}
-    if confidence in {"未证实", "样本不足"} or selected_stats.get("sample_count", 0) < 30:
+    if confidence != "较强" or selected_stats.get("sample_count", 0) < MIN_PROVEN_PERIODS:
         return "model"
     return selected
 
