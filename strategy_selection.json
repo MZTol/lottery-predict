@@ -1,0 +1,345 @@
+{
+  "version": "model-registry-v2",
+  "updated_at": "2026-09-19 17:13:27",
+  "kl8": {
+    "numbers": {
+      "selected_strategy": "omission",
+      "strategy_label": "当前遗漏",
+      "effective_strategy": "model",
+      "effective_strategy_label": "综合模型",
+      "selection_source": "最多100期回放动态选择",
+      "sample_count": 80,
+      "confidence": "未证实",
+      "selected_stats": {
+        "sample_count": 80,
+        "average_hits": 2.675,
+        "random_baseline": 2.5,
+        "delta": 0.175,
+        "confidence": "未证实",
+        "z_score": 1.069
+      },
+      "candidates": {
+        "model": {
+          "sample_count": 77,
+          "average_hits": 2.6234,
+          "random_baseline": 2.5,
+          "delta": 0.1234,
+          "confidence": "未证实",
+          "z_score": 0.775
+        },
+        "frequency": {
+          "sample_count": 80,
+          "average_hits": 2.3375,
+          "random_baseline": 2.5,
+          "delta": -0.1625,
+          "confidence": "未证实",
+          "z_score": -1.218
+        },
+        "omission": {
+          "sample_count": 80,
+          "average_hits": 2.675,
+          "random_baseline": 2.5,
+          "delta": 0.175,
+          "confidence": "未证实",
+          "z_score": 1.069
+        },
+        "interval": {
+          "sample_count": 80,
+          "average_hits": 2.6375,
+          "random_baseline": 2.5,
+          "delta": 0.1375,
+          "confidence": "未证实",
+          "z_score": 0.847
+        },
+        "linear_score": {
+          "sample_count": 80,
+          "average_hits": 2.55,
+          "random_baseline": 2.5,
+          "delta": 0.05,
+          "confidence": "未证实",
+          "z_score": 0.293
+        },
+        "nearest_draw": {
+          "sample_count": 80,
+          "average_hits": 2.4375,
+          "random_baseline": 2.5,
+          "delta": -0.0625,
+          "confidence": "未证实",
+          "z_score": -0.439
+        }
+      }
+    }
+  },
+  "dlt": {
+    "front": {
+      "selected_strategy": "model",
+      "strategy_label": "综合模型",
+      "effective_strategy": "model",
+      "effective_strategy_label": "综合模型",
+      "selection_source": "最多100期回放动态选择",
+      "sample_count": 78,
+      "confidence": "未证实",
+      "selected_stats": {
+        "sample_count": 78,
+        "average_hits": 0.5897,
+        "random_baseline": 0.7143,
+        "delta": -0.1245,
+        "confidence": "未证实",
+        "z_score": -1.6
+      },
+      "candidates": {
+        "model": {
+          "sample_count": 78,
+          "average_hits": 0.5897,
+          "random_baseline": 0.7143,
+          "delta": -0.1245,
+          "confidence": "未证实",
+          "z_score": -1.6
+        },
+        "frequency": {
+          "sample_count": 80,
+          "average_hits": 0.7875,
+          "random_baseline": 0.7143,
+          "delta": 0.0732,
+          "confidence": "未证实",
+          "z_score": 0.851
+        },
+        "omission": {
+          "sample_count": 80,
+          "average_hits": 0.65,
+          "random_baseline": 0.7143,
+          "delta": -0.0643,
+          "confidence": "未证实",
+          "z_score": -0.855
+        },
+        "interval": {
+          "sample_count": 80,
+          "average_hits": 0.675,
+          "random_baseline": 0.7143,
+          "delta": -0.0393,
+          "confidence": "未证实",
+          "z_score": -0.466
+        },
+        "linear_score": {
+          "sample_count": 80,
+          "average_hits": 0.5625,
+          "random_baseline": 0.7143,
+          "delta": -0.1518,
+          "confidence": "未证实",
+          "z_score": -1.881
+        },
+        "nearest_draw": {
+          "sample_count": 80,
+          "average_hits": 0.6375,
+          "random_baseline": 0.7143,
+          "delta": -0.0768,
+          "confidence": "未证实",
+          "z_score": -1.078
+        }
+      }
+    },
+    "back": {
+      "selected_strategy": "model",
+      "strategy_label": "综合模型",
+      "effective_strategy": "model",
+      "effective_strategy_label": "综合模型",
+      "selection_source": "最多100期回放动态选择",
+      "sample_count": 78,
+      "confidence": "未证实",
+      "selected_stats": {
+        "sample_count": 78,
+        "average_hits": 0.2949,
+        "random_baseline": 0.3333,
+        "delta": -0.0385,
+        "confidence": "未证实",
+        "z_score": -0.745
+      },
+      "candidates": {
+        "model": {
+          "sample_count": 78,
+          "average_hits": 0.2949,
+          "random_baseline": 0.3333,
+          "delta": -0.0385,
+          "confidence": "未证实",
+          "z_score": -0.745
+        },
+        "frequency": {
+          "sample_count": 80,
+          "average_hits": 0.2125,
+          "random_baseline": 0.3333,
+          "delta": -0.1208,
+          "confidence": "较弱",
+          "z_score": -2.642
+        },
+        "omission": {
+          "sample_count": 80,
+          "average_hits": 0.325,
+          "random_baseline": 0.3333,
+          "delta": -0.0083,
+          "confidence": "未证实",
+          "z_score": -0.151
+        },
+        "interval": {
+          "sample_count": 80,
+          "average_hits": 0.3375,
+          "random_baseline": 0.3333,
+          "delta": 0.0042,
+          "confidence": "未证实",
+          "z_score": 0.075
+        },
+        "linear_score": {
+          "sample_count": 80,
+          "average_hits": 0.375,
+          "random_baseline": 0.3333,
+          "delta": 0.0417,
+          "confidence": "未证实",
+          "z_score": 0.77
+        },
+        "nearest_draw": {
+          "sample_count": 80,
+          "average_hits": 0.3125,
+          "random_baseline": 0.3333,
+          "delta": -0.0208,
+          "confidence": "未证实",
+          "z_score": -0.38
+        }
+      }
+    }
+  },
+  "ssq": {
+    "front": {
+      "selected_strategy": "frequency",
+      "strategy_label": "近期高频",
+      "effective_strategy": "model",
+      "effective_strategy_label": "综合模型",
+      "selection_source": "最多100期回放动态选择",
+      "sample_count": 80,
+      "confidence": "未证实",
+      "selected_stats": {
+        "sample_count": 80,
+        "average_hits": 1.15,
+        "random_baseline": 1.0909,
+        "delta": 0.0591,
+        "confidence": "未证实",
+        "z_score": 0.695
+      },
+      "candidates": {
+        "model": {
+          "sample_count": 79,
+          "average_hits": 1.2025,
+          "random_baseline": 1.0909,
+          "delta": 0.1116,
+          "confidence": "未证实",
+          "z_score": 1.263
+        },
+        "frequency": {
+          "sample_count": 80,
+          "average_hits": 1.15,
+          "random_baseline": 1.0909,
+          "delta": 0.0591,
+          "confidence": "未证实",
+          "z_score": 0.695
+        },
+        "omission": {
+          "sample_count": 80,
+          "average_hits": 1.0,
+          "random_baseline": 1.0909,
+          "delta": -0.0909,
+          "confidence": "未证实",
+          "z_score": -0.939
+        },
+        "interval": {
+          "sample_count": 80,
+          "average_hits": 1.0875,
+          "random_baseline": 1.0909,
+          "delta": -0.0034,
+          "confidence": "未证实",
+          "z_score": -0.038
+        },
+        "linear_score": {
+          "sample_count": 80,
+          "average_hits": 1.1625,
+          "random_baseline": 1.0909,
+          "delta": 0.0716,
+          "confidence": "未证实",
+          "z_score": 0.803
+        },
+        "nearest_draw": {
+          "sample_count": 80,
+          "average_hits": 1.1875,
+          "random_baseline": 1.0909,
+          "delta": 0.0966,
+          "confidence": "未证实",
+          "z_score": 1.013
+        }
+      }
+    },
+    "back": {
+      "selected_strategy": "model",
+      "strategy_label": "综合模型",
+      "effective_strategy": "model",
+      "effective_strategy_label": "综合模型",
+      "selection_source": "最多100期回放动态选择",
+      "sample_count": 79,
+      "confidence": "未证实",
+      "selected_stats": {
+        "sample_count": 79,
+        "average_hits": 0.0886,
+        "random_baseline": 0.0625,
+        "delta": 0.0261,
+        "confidence": "未证实",
+        "z_score": 0.817
+      },
+      "candidates": {
+        "model": {
+          "sample_count": 79,
+          "average_hits": 0.0886,
+          "random_baseline": 0.0625,
+          "delta": 0.0261,
+          "confidence": "未证实",
+          "z_score": 0.817
+        },
+        "frequency": {
+          "sample_count": 80,
+          "average_hits": 0.05,
+          "random_baseline": 0.0625,
+          "delta": -0.0125,
+          "confidence": "未证实",
+          "z_score": -0.513
+        },
+        "omission": {
+          "sample_count": 80,
+          "average_hits": 0.0375,
+          "random_baseline": 0.0625,
+          "delta": -0.025,
+          "confidence": "未证实",
+          "z_score": -1.177
+        },
+        "interval": {
+          "sample_count": 80,
+          "average_hits": 0.0125,
+          "random_baseline": 0.0625,
+          "delta": -0.05,
+          "confidence": "较弱",
+          "z_score": -4.025
+        },
+        "linear_score": {
+          "sample_count": 80,
+          "average_hits": 0.05,
+          "random_baseline": 0.0625,
+          "delta": -0.0125,
+          "confidence": "未证实",
+          "z_score": -0.513
+        },
+        "nearest_draw": {
+          "sample_count": 80,
+          "average_hits": 0.025,
+          "random_baseline": 0.0625,
+          "delta": -0.0375,
+          "confidence": "较弱",
+          "z_score": -2.148
+        }
+      }
+    }
+  }
+}
