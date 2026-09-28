@@ -18,8 +18,11 @@ STRATEGY_LABELS = dict(MODEL_LABELS)
 
 DIR = os.path.dirname(__file__)
 SELECTION_FILE = os.path.join(DIR, "strategy_selection.json")
-ALGORITHM_VERSION = "model-registry-v2"
+ALGORITHM_VERSION = "model-registry-v3"
 MIN_PROVEN_PERIODS = 50
+# Selection is reported for analysis only.  Automatic switching must wait for
+# a separately held-out evaluation rather than reusing the replay sample.
+AUTO_SWITCH_ENABLED = False
 
 AREA_STRATEGIES = {
     ("kl8", "numbers"): "omission",
@@ -62,7 +65,14 @@ def strategy_for(lotid, field, use_saved_selection=True):
     default = AREA_STRATEGIES.get((lotid, field), "model")
     if not use_saved_selection:
         return default
-    entry = _load_selection().get(lotid, {}).get(field, {})
+    selection = _load_selection()
+    if selection.get("version") not in (None, ALGORITHM_VERSION):
+        return "model"
+    entry = selection.get(lotid, {}).get(field, {})
+    if not entry:
+        return default
+    if not AUTO_SWITCH_ENABLED:
+        return "model"
     selected = entry.get("selected_strategy")
     if selected not in STRATEGY_LABELS:
         return default

@@ -211,6 +211,21 @@ def _style():
             .trend-num, .trend-cell { width: 20px; min-width: 20px; max-width: 20px; }
             .trend-cell span { width: 17px; height: 17px; }
         }
+        /* Plain audit view: one accent, no visual noise. */
+        body { background: #ffffff; color: #111827; font-size: 16px; }
+        main { max-width: 900px; }
+        h1 { border-bottom: 1px solid #d1d5db; border-bottom-width: 1px; color: #111827; }
+        h2 { color: #111827; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; }
+        h3 { color: #374151; }
+        .meta, .source-note, .today-line, .review-line { color: #4b5563; }
+        .group-box, .summary-card, .today-card, .review-card, .source-details { box-shadow: none; border-radius: 4px; }
+        .summary-card.primary { border-color: #111827; }
+        .today-badge { border-radius: 3px; background: #111827; }
+        .decision-row { border-radius: 3px; }
+        .decision-row.expert, .decision-row.avoid, .decision-row.contrarian, .decision-row.experimental { border-left-color: #6b7280; background: #f9fafb; }
+        .tag, .review-score { border-radius: 3px; }
+        .num { font-variant-numeric: tabular-nums; }
+        .audit-note { margin: 12px 0 16px; padding: 9px 10px; border-left: 3px solid #6b7280; background: #f9fafb; color: #374151; }
     </style>
     <script>
     (function() {
@@ -475,7 +490,6 @@ def _prediction_history_comparison(data, field, predictions, counter, pick, peri
     rec, strategy = choose_recommendation(
         lotid, field, predictions, counter, cfg, history=data, use_saved_selection=True
     )
-    rec = expert_recommendation(rec, predictions, counter, expert_data, {**cfg, "field": field})["recommendation"]
 
     header = "".join(f'<th class="trend-num">{n:02d}</th>' for n in range(1, total_n + 1))
     draw_rows = []
@@ -617,7 +631,6 @@ def _key_summary_section(data, areas, evaluation=None, lotid=None, expert_data=N
         expert_info = expert_recommendation(
             rec, predictions, counter, expert_data, {**cfg, "field": field}
         )
-        rec = expert_info["recommendation"]
         nearest = candidate_recommendations(
             predictions, counter, {**cfg, "field": field}, history=data
         )["nearest_draw"]
@@ -634,15 +647,15 @@ def _key_summary_section(data, areas, evaluation=None, lotid=None, expert_data=N
         if expert_info["expert_count"]:
             expert_rows = f"""
   <div class="decision-row expert">
-    <div class="decision-label">专家推荐</div>
+      <div class="decision-label">专家参考</div>
     <div class="decision-values">{_fmt_nums(expert_info['consensus'])}</div>
   </div>
   <div class="decision-row avoid">
-    <div class="decision-label">专家避雷</div>
+      <div class="decision-label">专家排除（仅参考）</div>
     <div class="decision-values">{_fmt_nums(expert_info['avoid']) if expert_info['avoid'] else '<span class="decision-empty">无明确避雷</span>'}</div>
   </div>
   <div class="decision-row contrarian">
-    <div class="decision-label">反向实验</div>
+      <div class="decision-label">反向组合（实验）</div>
     <div class="decision-values">{_fmt_nums(expert_info['contrarian'])}</div>
   </div>
 """
@@ -654,19 +667,19 @@ def _key_summary_section(data, areas, evaluation=None, lotid=None, expert_data=N
   </div>
   <div class="decision-list">
     <div class="decision-row primary">
-      <div class="decision-label">本期主推</div>
+      <div class="decision-label">本期主推（实验）</div>
       <div class="decision-values">{_fmt_nums(rec)}</div>
     </div>
     <div class="decision-row experimental">
-      <div class="decision-label">历史相似<br>（实验）</div>
+      <div class="decision-label">相似期候选<br>（不参与主推）</div>
       <div class="decision-values">{_fmt_nums(nearest)}</div>
     </div>
     {expert_rows}
   </div>
   <div class="today-lines">
     <div class="today-line"><b>上期</b><span>{review_html}<br><span class="meta">{review_miss}</span></span></div>
-    <div class="today-line"><b>模型</b><span>{strategy_label(strategy)}{(' + 专家低权重' if expert_info['expert_count'] else '')}</span></div>
-    <div class="today-line"><b>状态</b><span>{'继续观察' if detail.get('confidence') in ('未证实', '样本不足') else detail.get('confidence', '继续观察')}</span></div>
+    <div class="today-line"><b>来源</b><span>{strategy_label(strategy)}</span></div>
+    <div class="today-line"><b>状态</b><span>{'尚未证实优于随机' if detail.get('confidence') in ('未证实', '样本不足') else detail.get('confidence', '尚未证实优于随机')}</span></div>
     <div class="today-line"><b>结构</b><span>和值 {sum(rec)}，奇偶 {sum(1 for n in rec if n % 2 == 1)}:{pick - sum(1 for n in rec if n % 2 == 1)}</span></div>
   </div>
 </div>
@@ -961,6 +974,7 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 <p class="meta">生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  seed: {seed}  |  算法: {ALGORITHM_VERSION}</p>
 <p class="meta">数据: {len(data)} 期历史  |  最新开奖: {latest_draw['period']}期</p>
 {_data_status_section(data_status)}
+<p class="audit-note">直白结论：以下是实验性候选，不是概率承诺；当前回测尚未证明模型稳定优于随机。</p>
 """
 
     html += _key_summary_section(data, areas, evaluation, lotid, expert_data)
@@ -1015,11 +1029,6 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
             )[0]
             for _, field, predictions, counter, cfg in areas
         }
-        for _, field, predictions, counter, cfg in areas:
-            recommendations_by_field[field] = expert_recommendation(
-                recommendations_by_field[field], predictions, counter, expert_data,
-                {**cfg, "field": field}
-            )["recommendation"]
         for ed in expert_data:
             label, experts, all_picks = ed
             lbl_pair = {"前区": ("前区", "后区"), "后区": ("前区", "后区"), "红球": ("红球", "蓝球"), "蓝球": ("红球", "蓝球")}
@@ -1040,14 +1049,13 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
         expert_info = expert_recommendation(
             rec, predictions, counter, expert_data, {**cfg, "field": field}
         )
-        rec = expert_info["recommendation"]
         reasons_html = _number_reason_rows(rec, data, cfg, predictions, counter)
         rs = sum(rec)
         rodd = sum(1 for n in rec if n % 2 == 1)
         rspan = max(rec) - min(rec)
         html += f"""
 <div class="group-box" style="flex:1;min-width:250px">
-<div><b>{_purchase_title(label)}主推（{strategy_label(strategy)}）</b></div>
+<div><b>{_purchase_title(label)}主推（{strategy_label(strategy)}，实验性）</b></div>
 <div class="today-rec">{_fmt_nums(rec)}</div>
 {reasons_html}
 <p class="meta">和值{rs} 奇偶{rodd}:{pick-rodd} 跨度{rspan}</p>

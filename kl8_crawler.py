@@ -7,7 +7,7 @@ import urllib.request
 BASE_URL = "https://www.917500.cn/win/getlist.html"
 OUTPUT_FILE = os.path.join(os.path.dirname(__file__), "kl8_history.json")
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
-PAGES = 5
+PAGES = 50
 
 
 def fetch_page(page=1):

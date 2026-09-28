@@ -62,10 +62,10 @@ PRIMARY_GROUPS = (
     "expert_avoid",
     "expert_contrarian",
 )
-REPLAY_TARGET_PERIODS = 100
-REPLAY_MIN_TRAIN = 20
+REPLAY_TARGET_PERIODS = 300
+REPLAY_MIN_TRAIN = 100
 REPLAY_CACHE_FILE = os.path.join(DIR, "replay_predictions_cache.json")
-REPLAY_ALGO_VERSION = "model-registry-v2"
+REPLAY_ALGO_VERSION = "model-registry-v3"
 
 
 def _load_json(filename, default):
@@ -168,6 +168,21 @@ def _style():
         .mobile-cards td[data-label="期号"],
         .mobile-cards td[data-label="类型"] { color: #16213e; font-weight: 700; }
       }
+      /* Plain audit view: hierarchy first, decoration second. */
+      body { background: #ffffff; color: #111827; font-size: 16px; }
+      main { max-width: 900px; }
+      h1 { border-bottom: 1px solid #d1d5db; padding-bottom: 10px; font-size: 26px; }
+      h2 { color: #111827; font-size: 19px; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; }
+      .meta, .muted { color: #4b5563; font-size: 14px; }
+      .stat, .plain-card, .rank-item { border-radius: 4px; box-shadow: none; }
+      .stat .val, .plain-title, .rank-title { color: #111827; }
+      .verdict { border-radius: 3px; }
+      .verdict-warn { background: #92400e; }
+      .verdict-good { background: #166534; }
+      .verdict-flat { background: #4b5563; }
+      .verdict-bad { background: #991b1b; }
+      .audit-note { border-top: 1px solid #d1d5db; padding-top: 10px; }
+      table { font-variant-numeric: tabular-nums; }
     </style>
     """
 
@@ -461,10 +476,8 @@ def _add_replay_rows(lotid, history, records, rows, summaries, target_periods=RE
 def _verdict(count, delta):
     if count < 10:
         return "样本不足", "verdict-warn", "少于10期，只能看格式和趋势"
-    if delta >= 0.20 and count >= 50:
-        return "明显强于随机", "verdict-good", "样本较多且平均命中高于随机"
     if delta >= 0.08:
-        return "暂时强于随机", "verdict-good", "继续积累样本确认稳定性"
+        return "高于随机（未证实）", "verdict-warn", "高于基线，但尚未达到统计显著"
     if delta <= -0.08:
         return "弱于随机", "verdict-bad", "当前平均命中低于随机基线"
     return "接近随机", "verdict-flat", "和随机基线差距很小"
@@ -827,7 +840,7 @@ def _model_rank_cards(review):
             group_label = GROUP_LABELS.get(item["group"], item["group"])
             cls = _baseline_class(item["delta"])
             if item["delta"] > 0.08:
-                action = "可优先看"
+                action = "高于随机但未证实"
             elif item["delta"] < -0.08:
                 action = "先不要依赖"
             else:
@@ -1009,7 +1022,7 @@ def _strategy_selection_html(review):
     <div class="plain-line"><b>选择依据</b><span>{item.get('selection_source', '回放')}</span></div>
     <div class="plain-line"><b>样本</b><span>{item.get('sample_count', 0)}期</span></div>
     <div class="plain-line"><b>候选差值</b><span>{candidate_text or '暂无'}</span></div>
-    <div class="plain-line"><b>规则</b><span>只有相对默认策略至少高出0.05，才会切换。</span></div>
+    <div class="plain-line"><b>规则</b><span>当前只记录候选差异，不自动切换；必须经过独立测试集验证。</span></div>
   </div>
 </div>
 """)
@@ -1035,11 +1048,11 @@ def render_review_html(review):
     <div class="stat"><span class="val">随机</span><span class="lbl">基线: 预测数×开奖号数/号码池</span></div>
   </div>
   <section class="section">
-    <h2>先看结论：模型是否有效</h2>
+    <h2>先看结论：是否超过随机（模型是否有效）</h2>
     {_effectiveness_cards(review)}
   </section>
   <section class="section">
-    <h2>下一期策略选择</h2>
+    <h2>下一期怎么选（仅实验）</h2>
     {_strategy_selection_html(review)}
   </section>
   <section class="section">
@@ -1055,10 +1068,6 @@ def render_review_html(review):
     {_plain_review_summary(review)}
   </section>
   <section class="section">
-    <h2>历史上最接近实际的预测</h2>
-    {_closest_replay_results(review)}
-  </section>
-  <section class="section">
     <h2>长期统计</h2>
     {_summary_table(review)}
   </section>
@@ -1066,7 +1075,7 @@ def render_review_html(review):
     <h2>最近明细</h2>
     {_detail_table(review)}
   </section>
-  <p class="meta">说明：最终主推是主判断；相似期开奖等候选模型必须通过滚动回测。平均命中高于随机基线才有参考价值；单期接近不代表下一期仍有效。</p>
+  <p class="meta audit-note">说明：所有号码都是实验性候选，不代表下一期概率提升。只有独立测试集持续高于随机基线，才可认为模型可能有效。</p>
 </main>
 </body>
 </html>

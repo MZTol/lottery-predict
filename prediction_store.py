@@ -15,7 +15,9 @@ from strategy import (
 
 DIR = os.path.dirname(__file__)
 PREDICTIONS_FILE = os.path.join(DIR, "predictions_history.json")
-EXPERT_SIGNAL_WEIGHT = 0.10
+# Expert articles remain visible as a separate reference, but they do not
+# alter the primary recommendation until an independent holdout proves lift.
+EXPERT_SIGNAL_WEIGHT = 0.0
 
 
 def _load_store(filename=PREDICTIONS_FILE):

@@ -8,7 +8,9 @@ from data_quality import DataQualityError, validate_history
 
 BASE_URL = "https://www.917500.cn/win/getlist.html"
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
-PAGES = 5
+# Keep enough history for a real walk-forward evaluation.  Five pages (100
+# draws) only left about 80 usable targets after the training minimum.
+PAGES = 50
 MAX_RETRIES = 3
 DIR = os.path.dirname(__file__)
 

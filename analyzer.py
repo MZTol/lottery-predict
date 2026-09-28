@@ -345,8 +345,10 @@ def generate_prediction_groups(data, cfg, seed, sample_target=MODEL_SAMPLE_TARGE
 # ─── 回测 ───
 
 WINDOWS = [20, 30, 50]
-BACKTEST_COUNT = 15
-BACKTEST_SEED_TRIALS = 3
+# Use a larger inner validation block and several seeds so weight tuning is
+# less sensitive to one short streak or one random sample.
+BACKTEST_COUNT = 30
+BACKTEST_SEED_TRIALS = 5
 BACKTEST_FILTER_ATTEMPTS = 30
 
 
