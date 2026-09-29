@@ -1,7 +1,6 @@
 import os
-from datetime import datetime
 from collections import Counter
-from strategy import ALGORITHM_VERSION, choose_recommendation, strategy_detail, strategy_label
+from strategy import ALGORITHM_VERSION, choose_recommendation, now_shanghai, strategy_detail, strategy_label
 from model_registry import candidate_recommendations, explain_numbers
 from prediction_store import PREDICTIONS_FILE, _load_store, expert_recommendation
 
@@ -971,7 +970,7 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 <html><head><meta charset="utf-8"><title>{lot_name} {next_period}期 预测报告</title>{_style()}</head>
 <body>
 <h1>{lot_name} {next_period}期</h1>
-<p class="meta">生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  seed: {seed}  |  算法: {ALGORITHM_VERSION}</p>
+<p class="meta">生成时间: {now_shanghai().strftime('%Y-%m-%d %H:%M')}  |  seed: {seed}  |  算法: {ALGORITHM_VERSION}</p>
 <p class="meta">数据: {len(data)} 期历史  |  最新开奖: {latest_draw['period']}期</p>
 {_data_status_section(data_status)}
 <p class="audit-note">直白结论：以下是实验性候选，不是概率承诺；当前回测尚未证明模型稳定优于随机。</p>
@@ -1083,7 +1082,7 @@ def _build_html(data, latest_draw, predictions, counter, cfg, lotid, next_period
 <html><head><meta charset="utf-8"><title>{lot_name} {next_period}期{area_str} 预测报告</title>{_style()}</head>
 <body>
 <h1>{lot_name} {next_period}期{area_str}</h1>
-<p class="meta">生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}  |  seed: {seed}  |  总采样: {sum(counter.values())} 次</p>
+<p class="meta">生成时间: {now_shanghai().strftime('%Y-%m-%d %H:%M')}  |  seed: {seed}  |  总采样: {sum(counter.values())} 次</p>
 <p class="meta">数据: {len(data)} 期历史  |  选号: {pick}/{total_n}  |  最新开奖: {latest_draw['period']}期</p>
 {_data_status_section(data_status)}
 

@@ -2,18 +2,19 @@ import json
 import os
 import sys
 from collections import defaultdict
-from datetime import datetime
 
 from prediction_store import PREDICTIONS_FILE
 from report import REPORTS_DIR
 from analyzer import CONFIGS, generate_prediction_groups
 from strategy import (
+    AUTO_SWITCH_ENABLED,
     ALGORITHM_VERSION,
     AREA_STRATEGIES,
     candidate_recommendations,
     choose_recommendation,
     save_strategy_selection,
     strategy_label,
+    now_shanghai,
 )
 from model_registry import MODEL_REGISTRY
 
@@ -519,7 +520,7 @@ def _selection_stats(summary):
 def _update_strategy_selection(lotid, records, summaries):
     selection = {
         "version": ALGORITHM_VERSION,
-        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "updated_at": now_shanghai().strftime("%Y-%m-%d %H:%M:%S"),
         lotid: {},
     }
     candidate_groups = {
@@ -563,7 +564,7 @@ def _update_strategy_selection(lotid, records, summaries):
             "confidence": "样本不足",
             "z_score": None,
         })
-        effective_strategy = selected if (
+        effective_strategy = selected if AUTO_SWITCH_ENABLED and (
             selected_stats.get("confidence") == "较强"
             and selected_stats.get("sample_count", 0) >= 50
         ) else "model"
@@ -1005,24 +1006,21 @@ def _strategy_selection_html(review):
             f"{strategy_label(name)} {stats.get('delta', 0):+.2f}"
             for name, stats in candidates.items()
         )
-        effective_strategy = item.get("effective_strategy") or (
-            item.get("selected_strategy")
-            if item.get("confidence") == "较强" and item.get("sample_count", 0) >= 50
-            else "model"
-        )
-        effective_label = item.get("effective_strategy_label") or strategy_label(effective_strategy)
+        actual_strategy = (item.get("effective_strategy") if AUTO_SWITCH_ENABLED else "model") or "model"
+        actual_label = strategy_label(actual_strategy)
+        selected_label = item.get("strategy_label", "综合模型")
         cards.append(f"""
 <div class="plain-card">
   <div class="plain-head">
-    <div class="plain-title">{field}下一期实际策略：{effective_label}</div>
+    <div class="plain-title">{field}下一期实际使用：{actual_label}</div>
     <span class="verdict verdict-flat">{item.get('confidence', '样本不足')}</span>
   </div>
   <div class="plain-lines">
-    <div class="plain-line"><b>候选结果</b><span>{item.get('strategy_label', '综合模型')}</span></div>
+    <div class="plain-line"><b>回测最佳候选</b><span>{selected_label}</span></div>
     <div class="plain-line"><b>选择依据</b><span>{item.get('selection_source', '回放')}</span></div>
     <div class="plain-line"><b>样本</b><span>{item.get('sample_count', 0)}期</span></div>
     <div class="plain-line"><b>候选差值</b><span>{candidate_text or '暂无'}</span></div>
-    <div class="plain-line"><b>规则</b><span>当前只记录候选差异，不自动切换；必须经过独立测试集验证。</span></div>
+    <div class="plain-line"><b>自动切换</b><span>{'已开启' if AUTO_SWITCH_ENABLED else '关闭，当前固定使用综合模型'}</span></div>
   </div>
 </div>
 """)
@@ -1032,7 +1030,7 @@ def _strategy_selection_html(review):
 def render_review_html(review):
     total_periods = len({row["period"] for row in review["rows"]})
     total_rows = len(review["rows"])
-    generated = datetime.now().strftime("%Y-%m-%d %H:%M")
+    generated = now_shanghai().strftime("%Y-%m-%d %H:%M")
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><title>{review['label']} 历史复盘</title>{_style()}</head>

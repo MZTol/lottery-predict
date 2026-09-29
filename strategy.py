@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from model_registry import (
     MODEL_LABELS,
     candidate_recommendations,
@@ -23,6 +24,11 @@ MIN_PROVEN_PERIODS = 50
 # Selection is reported for analysis only.  Automatic switching must wait for
 # a separately held-out evaluation rather than reusing the replay sample.
 AUTO_SWITCH_ENABLED = False
+SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
+
+
+def now_shanghai():
+    return datetime.now(SHANGHAI_TZ)
 
 AREA_STRATEGIES = {
     ("kl8", "numbers"): "omission",
@@ -95,7 +101,7 @@ def strategy_detail(lotid, field):
             detail["effective_strategy"] = effective
             detail["strategy_label"] = strategy_label(effective)
             detail["selection_source"] = (
-                f"{entry.get('selection_source', '动态选择')}，未证实，已回退综合模型"
+                f"{entry.get('selection_source', '动态选择')}，自动切换已关闭，当前使用综合模型"
             )
         return detail
     selected = AREA_STRATEGIES.get((lotid, field), "model")

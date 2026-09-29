@@ -5,6 +5,7 @@ import shutil
 import sys
 from collections import defaultdict
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 LOTTERY_ORDER = ["kl8", "dlt", "ssq"]
@@ -95,7 +96,7 @@ def _section(title, cards, empty_text="暂无"):
 
 
 def build_index_html(report_dir, updated_at=None, recent_per_lottery=8):
-    updated_at = updated_at or datetime.now().strftime("%Y-%m-%d %H:%M")
+    updated_at = updated_at or datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M")
     latest = create_latest_aliases(report_dir)
     predictions = _prediction_files(report_dir)
     reviews = _review_files(report_dir)

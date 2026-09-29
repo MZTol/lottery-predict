@@ -1,7 +1,6 @@
 import json
 import os
 from collections import Counter
-from datetime import datetime
 from json import JSONDecodeError
 from strategy import (
     ALGORITHM_VERSION,
@@ -10,6 +9,7 @@ from strategy import (
     model_recommendation,
     strategy_detail,
     strategy_label,
+    now_shanghai,
 )
 
 
@@ -220,7 +220,7 @@ def save_prediction(lotid, period, seed, areas, filename=PREDICTIONS_FILE, exper
     record = {
         "lotid": lotid,
         "period": period_key,
-        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "generated_at": now_shanghai().strftime("%Y-%m-%d %H:%M:%S"),
         "seed": seed,
         "algorithm_version": ALGORITHM_VERSION,
         "data_latest_period": str(history[0].get("period")) if history else "",
