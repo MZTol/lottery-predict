@@ -633,7 +633,6 @@ def _key_summary_section(data, areas, evaluation=None, lotid=None, expert_data=N
         nearest = candidate_recommendations(
             predictions, counter, {**cfg, "field": field}, history=data
         )["nearest_draw"]
-        detail = strategy_detail(lotid, field)
         rec_eval = eval_by_field.get(field)
         if rec_eval:
             predicted_count = len(rec_eval.get("predicted", [])) or pick
@@ -654,7 +653,7 @@ def _key_summary_section(data, areas, evaluation=None, lotid=None, expert_data=N
     <div class="decision-values">{_fmt_nums(expert_info['avoid']) if expert_info['avoid'] else '<span class="decision-empty">无明确避雷</span>'}</div>
   </div>
   <div class="decision-row contrarian">
-      <div class="decision-label">反向组合（实验）</div>
+      <div class="decision-label">避开专家参考的备选</div>
     <div class="decision-values">{_fmt_nums(expert_info['contrarian'])}</div>
   </div>
 """
@@ -678,7 +677,7 @@ def _key_summary_section(data, areas, evaluation=None, lotid=None, expert_data=N
   <div class="today-lines">
     <div class="today-line"><b>上期</b><span>{review_html}<br><span class="meta">{review_miss}</span></span></div>
     <div class="today-line"><b>来源</b><span>{strategy_label(strategy)}</span></div>
-    <div class="today-line"><b>状态</b><span>{'尚未证实优于随机' if detail.get('confidence') in ('未证实', '样本不足') else detail.get('confidence', '尚未证实优于随机')}</span></div>
+    <div class="today-line"><b>状态</b><span>尚未证实优于随机</span></div>
     <div class="today-line"><b>结构</b><span>和值 {sum(rec)}，奇偶 {sum(1 for n in rec if n % 2 == 1)}:{pick - sum(1 for n in rec if n % 2 == 1)}</span></div>
   </div>
 </div>
@@ -806,7 +805,7 @@ def _expert_section_html(experts, all_picks, labels, recommendations=None):
 <div class="expert-overlap-card">
   <div class="title">{label_f}专家共识 vs 购买号码</div>
   <div>重合 {len(overlap)} 个: {_fmt_nums(overlap)}</div>
-  <div class="meta">专家信号仅以低权重参与融合。</div>
+  <div class="meta">专家参考不参与主推。</div>
 </div>
 """)
     back_rec = recommendations.get("back") or []
@@ -816,7 +815,7 @@ def _expert_section_html(experts, all_picks, labels, recommendations=None):
 <div class="expert-overlap-card">
   <div class="title">{label_b}专家共识 vs 购买号码</div>
   <div>重合 {len(overlap)} 个: {_fmt_nums(overlap)}</div>
-  <div class="meta">专家信号仅以低权重参与融合。</div>
+  <div class="meta">专家参考不参与主推。</div>
 </div>
 """)
 
@@ -844,7 +843,7 @@ def _expert_section_html(experts, all_picks, labels, recommendations=None):
     return f"""
     <details class="expert-block">
       <summary>专家明细（{len(experts)} 位）</summary>
-      <p class="expert-note">专家推荐只占低权重；明确杀号列入避雷，结果单独复盘。</p>
+      <p class="expert-note">专家参考不参与主推；排除组按误排数量单独复盘。</p>
       <div class="expert-overlap">{''.join(overlap_blocks) or '<p class="meta">暂无可计算的专家共识重合。</p>'}</div>
       <h3>专家共识（{label_f} Top 10 + {label_b} Top 6）</h3>
       {consensus_table}
@@ -861,11 +860,17 @@ GROUP_LABELS = {
     "kill_a": "中间候选A(随机)",
     "kill_b": "中间候选B(高频)",
     "kill_c": "中间候选C(等距)",
-    "recommendation": "本期主推",
-    "expert_consensus": "专家共识",
-    "expert_avoid": "专家避雷",
-    "expert_contrarian": "专家反向实验",
+    "recommendation": "主推",
+    "nearest_draw": "相似期候选",
+    "expert_consensus": "专家参考",
+    "expert_avoid": "专家排除",
+    "expert_contrarian": "避开专家参考的备选",
 }
+
+REVIEW_GROUPS = (
+    "recommendation", "nearest_draw", "expert_consensus",
+    "expert_avoid", "expert_contrarian",
+)
 
 
 def _fmt_nums(nums):
@@ -876,6 +881,45 @@ def _fmt_nums(nums):
 
 def _purchase_title(label):
     return "号码" if not label or label == "号码" else label
+
+
+def _evaluation_groups_html(area):
+    comparisons = {comp["name"]: comp for comp in area.get("comparisons", [])}
+    missing = {
+        "recommendation": "未保存主推记录",
+        "nearest_draw": "未保存相似期候选，无法复盘",
+        "expert_consensus": "当期无专家参考记录",
+        "expert_avoid": "当期无排除记录",
+        "expert_contrarian": "当期无备选记录",
+    }
+    rows = []
+    for name in REVIEW_GROUPS:
+        comp = comparisons.get(name)
+        if not comp:
+            numbers, result, drawn = "-", missing[name], "-"
+        else:
+            numbers = _fmt_nums(comp["predicted"])
+            count = len(comp["hits"])
+            size = len(comp["predicted"])
+            result = f"误排 {count}/{size}（越少越好）" if name == "expert_avoid" else f"中 {count}/{size}"
+            drawn = _fmt_nums(comp["hits"])
+        rows.append(
+            '<tr>'
+            + _td("分组", GROUP_LABELS[name])
+            + _td("当时号码", numbers)
+            + _td("结果", result)
+            + _td("开出号码", drawn)
+            + '</tr>'
+        )
+    return f"""
+<h3>{area['label']}上期各组结果</h3>
+<div class="table-wrap mobile-cards">
+<table class="stack-table">
+  <thead><tr><th>分组</th><th>当时号码</th><th>结果</th><th>开出号码</th></tr></thead>
+  <tbody>{''.join(rows)}</tbody>
+</table>
+</div>
+"""
 
 
 def _evaluation_section_html(evaluation):
@@ -900,7 +944,7 @@ def _evaluation_section_html(evaluation):
             html += f"""
 <div class="review-card">
   <div class="review-head">
-    <div class="review-title">{area['label']}购买结果复盘</div>
+    <div class="review-title">{area['label']}主推复盘</div>
     <div class="review-score">中 {hit_count}/{predicted_count}</div>
   </div>
   <div class="review-lines">
@@ -912,15 +956,17 @@ def _evaluation_section_html(evaluation):
   </div>
 </div>
 """
+        html += _evaluation_groups_html(area)
         rows = []
         for comp in area["comparisons"]:
+            is_avoid = comp["name"] == "expert_avoid"
             rows.append(
                 f"<tr>"
                 f"{_td('类型', GROUP_LABELS.get(comp['name'], comp['name']), 'font-weight:bold')}"
                 f"{_td('预测号码', _fmt_nums(comp['predicted']))}"
-                f"{_td('中几个', len(comp['hits']))}"
-                f"{_td('命中', _fmt_nums(comp['hits']))}"
-                f"{_td('预测未中', _fmt_nums(comp['misses']))}"
+                f"{_td('结果', ('误排 ' if is_avoid else '中 ') + str(len(comp['hits'])) + ('（越少越好）' if is_avoid else ''))}"
+                f"{_td('开出号码', _fmt_nums(comp['hits']))}"
+                f"{_td('未开奖号码', _fmt_nums(comp['misses']))}"
                 f"{_td('开奖未覆盖', _fmt_nums(comp['uncovered']))}"
                 f"</tr>"
             )
@@ -930,7 +976,7 @@ def _evaluation_section_html(evaluation):
 <div class="table-wrap mobile-cards">
 <table class="wide-table stack-table">
     <thead>
-        <tr><th>类型</th><th>预测号码</th><th>中几个</th><th>命中</th><th>预测未中</th><th>开奖未覆盖</th></tr>
+        <tr><th>类型</th><th>预测号码</th><th>结果</th><th>开出号码</th><th>未开奖号码</th><th>开奖未覆盖</th></tr>
     </thead>
     <tbody>
         {''.join(rows)}
@@ -1058,8 +1104,8 @@ def generate_combined_report(data, latest_draw, areas, lotid, next_period, seed,
 <div class="today-rec">{_fmt_nums(rec)}</div>
 {reasons_html}
 <p class="meta">和值{rs} 奇偶{rodd}:{pick-rodd} 跨度{rspan}</p>
-{('<p class="meta">专家共识: ' + _fmt_nums(expert_info['consensus']) + '</p>') if expert_info['consensus'] else ''}
-{('<p class="meta">专家避雷: ' + _fmt_nums(expert_info['avoid']) + '</p>') if expert_info['avoid'] else ''}
+{('<p class="meta">专家参考: ' + _fmt_nums(expert_info['consensus']) + '</p>') if expert_info['consensus'] else ''}
+{('<p class="meta">专家排除: ' + _fmt_nums(expert_info['avoid']) + '</p>') if expert_info['avoid'] else ''}
 </div>"""
 
     html += "</div></body></html>"

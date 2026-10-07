@@ -332,6 +332,9 @@ def evaluate_prediction(lotid, actual_draw, filename=PREDICTIONS_FILE):
         groups = dict(area.get("predictions", {}))
         if area.get("recommendation"):
             groups["recommendation"] = area["recommendation"]
+        nearest = area.get("model_candidates", {}).get("nearest_draw")
+        if nearest:
+            groups["nearest_draw"] = nearest
         if area.get("expert_consensus"):
             groups["expert_consensus"] = area["expert_consensus"]
         if area.get("expert_avoid"):

@@ -4,7 +4,7 @@ import sys
 from collections import defaultdict
 
 from prediction_store import PREDICTIONS_FILE
-from report import REPORTS_DIR
+from report import REPORTS_DIR, _evaluation_groups_html
 from analyzer import CONFIGS, generate_prediction_groups
 from strategy import (
     AUTO_SWITCH_ENABLED,
@@ -45,10 +45,10 @@ GROUP_LABELS = {
     "baseline_omission": "当前遗漏",
     "interval": "区间模型",
     "linear_score": "线性评分",
-    "nearest_draw": "相似期开奖",
-    "expert_consensus": "专家共识",
-    "expert_avoid": "专家避雷",
-    "expert_contrarian": "专家反向实验",
+    "nearest_draw": "相似期候选",
+    "expert_consensus": "专家参考",
+    "expert_avoid": "专家排除",
+    "expert_contrarian": "避开专家参考的备选",
 }
 
 PRIMARY_GROUPS = (
@@ -249,12 +249,14 @@ def _empty_summaries():
 
 def _add_comparison(
     rows, summaries, period, generated_at, area_label, group_name,
-    predicted, actual, total, source="saved", strategy=None, strategy_text=None
+    predicted, actual, total, source="saved", strategy=None, strategy_text=None,
+    recorded=True,
 ):
     cmp = _compare_group(group_name, predicted, actual, total)
     delta = cmp["delta"]
-    better = delta > 0.001
-    worse = delta < -0.001
+    performance_delta = -delta if group_name == "expert_avoid" else delta
+    better = performance_delta > 0.001
+    worse = performance_delta < -0.001
     key = (area_label, group_name)
     summary = summaries[key]
     summary["count"] += 1
@@ -267,8 +269,8 @@ def _add_comparison(
     if "sources" not in summary:
         summary["sources"] = defaultdict(int)
     summary["sources"][source] += 1
-    best_value = cmp["hit_count"]
-    worst_value = -cmp["hit_count"]
+    best_value = -cmp["hit_count"] if group_name == "expert_avoid" else cmp["hit_count"]
+    worst_value = -best_value
     if summary["best"] is None or best_value > summary["best"][0]:
         summary["best"] = (best_value, period, cmp["hit_count"], cmp["hits"])
     if summary["worst"] is None or worst_value > summary["worst"][0]:
@@ -280,6 +282,7 @@ def _add_comparison(
         "area": area_label,
         "group": group_name,
         "source": source,
+        "recorded": recorded,
         "strategy": strategy,
         "strategy_text": strategy_text,
         "actual": cmp["actual"],
@@ -474,9 +477,15 @@ def _add_replay_rows(lotid, history, records, rows, summaries, target_periods=RE
     return replay_periods, cache_dirty
 
 
-def _verdict(count, delta):
+def _verdict(count, delta, lower_is_better=False):
     if count < 10:
         return "样本不足", "verdict-warn", "少于10期，只能看格式和趋势"
+    if lower_is_better:
+        if delta <= -0.08:
+            return "误排较少（未证实）", "verdict-warn", "误排低于随机基线，尚未证实稳定有效"
+        if delta >= 0.08:
+            return "误排较多", "verdict-bad", "误排高于随机基线，排除效果较差"
+        return "接近随机", "verdict-flat", "误排与随机基线差距很小"
     if delta >= 0.08:
         return "高于随机（未证实）", "verdict-warn", "高于基线，但尚未达到统计显著"
     if delta <= -0.08:
@@ -484,11 +493,13 @@ def _verdict(count, delta):
     return "接近随机", "verdict-flat", "和随机基线差距很小"
 
 
-def _confidence(summary):
+def _confidence(summary, lower_is_better=False):
     count = int(summary.get("count", 0))
     if count < 30:
         return "样本不足", None
     avg_delta = (summary.get("hits", 0.0) - summary.get("expected", 0.0)) / count
+    if lower_is_better:
+        avg_delta = -avg_delta
     variance = max(
         0.0,
         summary.get("delta_sq", 0.0) / count - avg_delta * avg_delta,
@@ -617,6 +628,7 @@ def build_review(lotid, prediction_store=None, history=None):
                 groups[group_name] = nums
             if area.get("recommendation"):
                 groups["recommendation"] = area["recommendation"]
+            recorded_groups = set(groups)
             if train:
                 replay_candidates = candidate_recommendations(
                     area.get("predictions", {}),
@@ -643,6 +655,9 @@ def build_review(lotid, prediction_store=None, history=None):
                     source="saved",
                     strategy=area.get("strategy") if group_name == "recommendation" else None,
                     strategy_text=area.get("strategy_label") if group_name == "recommendation" else None,
+                    recorded=group_name in recorded_groups or group_name in {
+                        "expert_consensus", "expert_avoid", "expert_contrarian",
+                    },
                 )
 
     replay_cache = None if external_inputs else _load_json(REPLAY_CACHE_FILE, {})
@@ -677,9 +692,9 @@ def _summary_table(review):
         avg_hits = summary["hits"] / count
         avg_expected = summary["expected"] / count
         delta = avg_hits - avg_expected
-        lower_is_better = False
+        lower_is_better = group_name == "expert_avoid"
         cls = _baseline_class(delta, lower_is_better)
-        confidence, z_score = _confidence(summary)
+        confidence, z_score = _confidence(summary, lower_is_better)
         confidence_text = confidence + (f" z={z_score:.2f}" if z_score is not None else "")
         best = summary["best"]
         worst = summary["worst"]
@@ -688,15 +703,15 @@ def _summary_table(review):
             + _td("区域", area)
             + _td("类型", GROUP_LABELS.get(group_name, group_name))
             + _td("期数", count)
-            + _td("平均撞号", f"{avg_hits:.2f}")
+            + _td("平均结果", f"{'误排' if lower_is_better else '中'} {avg_hits:.2f} 个")
             + _td("随机基线", f"{avg_expected:.2f}")
             + _td("差值", f'<span class="{cls}">{delta:+.2f}</span>')
             + _td("信心", confidence_text)
             + _td("优于随机", summary["better"])
             + _td("持平", summary["equal"])
             + _td("差于随机", summary["worse"])
-            + _td("最好一期", f"{best[1]}期：{best[2]}个 {_fmt_nums(best[3])}" if best else "")
-            + _td("最差一期", f"{worst[1]}期：{worst[2]}个 {_fmt_nums(worst[3])}" if worst else "")
+            + _td("最好一期", f"{best[1]}期：{'误排' if lower_is_better else '中'}{best[2]}个 {_fmt_nums(best[3])}" if best else "")
+            + _td("最差一期", f"{worst[1]}期：{'误排' if lower_is_better else '中'}{worst[2]}个 {_fmt_nums(worst[3])}" if worst else "")
             + "</tr>"
         )
     if not rows:
@@ -705,7 +720,7 @@ def _summary_table(review):
 <div class="table-wrap mobile-cards">
 <table>
   <thead>
-    <tr><th>区域</th><th>类型</th><th>期数</th><th>平均撞号</th><th>随机基线</th><th>差值</th><th>信心</th><th>优于随机</th><th>持平</th><th>差于随机</th><th>最好一期</th><th>最差一期</th></tr>
+    <tr><th>区域</th><th>类型</th><th>期数</th><th>平均结果</th><th>随机基线</th><th>差值</th><th>信心</th><th>优于随机</th><th>持平</th><th>差于随机</th><th>最好一期</th><th>最差一期</th></tr>
   </thead>
   <tbody>{''.join(rows)}</tbody>
 </table>
@@ -764,7 +779,7 @@ def _model_comparison(review):
                 + _td("区域", area)
                 + _td("模型", "随机基线")
                 + _td("期数", count)
-                + _td("平均命中", f"{avg_expected:.2f}")
+                + _td("平均结果", f"{avg_expected:.2f}")
                 + _td("随机基线", f"{avg_expected:.2f}")
                 + _td("差值", '<span class="flat">+0.00</span>')
                 + _td("信心", "-")
@@ -780,17 +795,18 @@ def _model_comparison(review):
             avg_hits = summary["hits"] / count if count else 0.0
             avg_expected = summary["expected"] / count if count else 0.0
             delta = avg_hits - avg_expected
-            text, cls, _ = _verdict(count, delta)
-            confidence, z_score = _confidence(summary)
+            lower_is_better = group_name == "expert_avoid"
+            text, cls, _ = _verdict(count, delta, lower_is_better)
+            confidence, z_score = _confidence(summary, lower_is_better)
             confidence_text = confidence + (f" z={z_score:.2f}" if z_score is not None else "")
             rows.append(
                 "<tr>"
                 + _td("区域", area)
                 + _td("模型", GROUP_LABELS.get(group_name, group_name))
                 + _td("期数", count)
-                + _td("平均命中", f"{avg_hits:.2f}")
+                + _td("平均结果", f"{'误排' if lower_is_better else '中'} {avg_hits:.2f} 个")
                 + _td("随机基线", f"{avg_expected:.2f}")
-                + _td("差值", f'<span class="{_baseline_class(delta)}">{delta:+.2f}</span>')
+                + _td("差值", f'<span class="{_baseline_class(delta, lower_is_better)}">{delta:+.2f}</span>')
                 + _td("信心", confidence_text)
                 + _td("结论", f'<span class="verdict {cls}">{text}</span>')
                 + "</tr>"
@@ -802,7 +818,7 @@ def _model_comparison(review):
 <div class="table-wrap mobile-cards">
 <table>
   <thead>
-    <tr><th>区域</th><th>模型</th><th>期数</th><th>平均命中</th><th>随机基线</th><th>差值</th><th>信心</th><th>结论</th></tr>
+    <tr><th>区域</th><th>模型</th><th>期数</th><th>平均结果</th><th>随机基线</th><th>差值</th><th>信心</th><th>结论</th></tr>
   </thead>
   <tbody>{''.join(rows)}</tbody>
 </table>
@@ -813,7 +829,7 @@ def _model_comparison(review):
 def _model_rank_cards(review):
     by_area = defaultdict(list)
     for (area, group_name), summary in review["summaries"].items():
-        if group_name not in PRIMARY_GROUPS or group_name == "expert_consensus":
+        if group_name not in PRIMARY_GROUPS or group_name in {"expert_consensus", "expert_avoid"}:
             continue
         count = summary["count"]
         if not count:
@@ -909,6 +925,20 @@ def _plain_review_summary(review):
 </div>
 """)
 
+        # Compare groups from the same saved period, never an older expert
+        # article or a candidate reconstructed after the draw.
+        group_rows = [
+            item for item in review["rows"]
+            if item["area"] == area and item["period"] == row["period"]
+            and item.get("source") == "saved"
+            and item.get("recorded", True)
+        ]
+        if group_rows:
+            cards.append(_evaluation_groups_html({
+                "label": area,
+                "comparisons": [{**item, "name": item["group"]} for item in group_rows],
+            }))
+
     return f'<div class="plain-grid">{"".join(cards)}</div>'
 
 
@@ -961,7 +991,8 @@ def _closest_replay_results(review, limit_per_group=3):
 def _detail_table(review, limit=80):
     rows = []
     for row in review["rows"][:limit]:
-        cls = _baseline_class(row["delta"], row["group"].startswith("kill_"))
+        is_avoid = row["group"] == "expert_avoid"
+        cls = _baseline_class(row["delta"], is_avoid)
         rows.append(
             "<tr>"
             + _td("期号", row["period"])
@@ -971,7 +1002,7 @@ def _detail_table(review, limit=80):
             + _td("策略", row.get("strategy_text") or "-")
             + _td("实际开奖", _fmt_nums(row["actual"]))
             + _td("预测号码", _fmt_nums(row["predicted"]))
-            + _td("撞号", f"{row['hit_count']} / {_fmt_nums(row['hits'])}")
+            + _td("结果", f"{'误排' if is_avoid else '中'} {row['hit_count']} / {_fmt_nums(row['hits'])}")
             + _td("随机基线", f"{row['expected']:.2f}")
             + _td("差值", f'<span class="{cls}">{row["delta"]:+.2f}</span>')
             + _td("开奖未覆盖", _fmt_nums(row["uncovered"]))
@@ -983,7 +1014,7 @@ def _detail_table(review, limit=80):
 <div class="table-wrap mobile-cards">
 <table>
   <thead>
-    <tr><th>期号</th><th>来源</th><th>区域</th><th>类型</th><th>策略</th><th>实际开奖</th><th>预测号码</th><th>撞号</th><th>随机基线</th><th>差值</th><th>开奖未覆盖</th></tr>
+    <tr><th>期号</th><th>来源</th><th>区域</th><th>类型</th><th>策略</th><th>实际开奖</th><th>预测号码</th><th>结果</th><th>随机基线</th><th>差值</th><th>开奖未覆盖</th></tr>
   </thead>
   <tbody>{''.join(rows)}</tbody>
 </table>
@@ -1059,6 +1090,7 @@ def render_review_html(review):
   </section>
   <section class="section">
     <h2>模型对比</h2>
+    <p class="meta">专家排除看误排数量，越少越好；其他组看命中数量，越多越好。差值均为实际数量减随机基线。</p>
     {_model_comparison(review)}
   </section>
   <section class="section">

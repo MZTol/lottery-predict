@@ -330,7 +330,8 @@ class CoreLogicTests(unittest.TestCase):
 
         self.assertIn("<details", html)
         self.assertIn("专家明细", html)
-        self.assertIn("只占低权重", html)
+        self.assertIn("专家参考不参与主推", html)
+        self.assertNotIn("低权重", html)
         self.assertIn("重合 2 个", html)
 
     def test_saved_recommendation_uses_area_strategy(self):
@@ -528,7 +529,7 @@ class CoreLogicTests(unittest.TestCase):
 
         html = report._evaluation_section_html(evaluation)
 
-        self.assertIn("号码购买结果复盘", html)
+        self.assertIn("号码主推复盘", html)
         self.assertIn("中 2/3", html)
         self.assertIn("上期预测", html)
         self.assertIn("漏掉", html)
@@ -580,11 +581,94 @@ class CoreLogicTests(unittest.TestCase):
         self.assertIn("前区最近一期", html)
         self.assertIn("中 3/5", html)
         self.assertIn("长期", html)
-        self.assertIn("专家共识", html)
+        self.assertIn("专家参考", html)
         self.assertIn("随机基线", html)
         self.assertIn("模型排行榜", html)
         self.assertIn("前区模型排行榜", html)
         self.assertIn("长期统计", html)
+
+    def test_evaluation_includes_saved_similar_candidate_and_expert_groups(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filename = os.path.join(tmpdir, "predictions.json")
+            record = {
+                "field": "numbers", "label": "号码", "total": 9,
+                "recommendation": ["01", "02", "03"],
+                "model_candidates": {"nearest_draw": ["03", "04", "05"]},
+                "expert_consensus": ["01", "06", "07"],
+                "expert_avoid": ["03", "08"],
+                "expert_contrarian": ["02", "04", "09"],
+            }
+            with open(filename, "w") as f:
+                json.dump({"kl8": {"123": {"areas": {"numbers": record}}}}, f)
+            evaluation = prediction_store.evaluate_prediction(
+                "kl8", {"period": "123", "numbers": ["01", "03", "05"]}, filename
+            )
+
+        area = evaluation["areas"][0]
+        nearest = next(c for c in area["comparisons"] if c["name"] == "nearest_draw")
+        self.assertEqual(nearest["predicted"], [3, 4, 5])
+        self.assertEqual(nearest["hits"], [3, 5])
+        html = report._evaluation_section_html(evaluation)
+        visible = html.split('<details class="review-details">')[0]
+        for label in ("主推", "相似期候选", "专家参考", "专家排除", "避开专家参考的备选"):
+            self.assertIn(label, visible)
+        self.assertIn("误排 1/2（越少越好）", visible)
+        self.assertNotIn("反向组合", html)
+
+    def test_evaluation_missing_groups_are_not_reported_as_zero_hits(self):
+        html = report._evaluation_groups_html({"label": "号码", "comparisons": []})
+        self.assertIn("未保存相似期候选，无法复盘", html)
+        self.assertIn("当期无专家参考记录", html)
+        self.assertIn("当期无排除记录", html)
+        self.assertNotIn("中 0/", html)
+        self.assertNotIn("误排 0/", html)
+
+    def test_expert_exclusions_score_fewer_drawn_numbers_as_better(self):
+        rows, summaries = [], review_report._empty_summaries()
+        for i in range(30):
+            review_report._add_comparison(
+                rows, summaries, i, "", "号码", "expert_avoid", [1, 2], [3, 4], 4
+            )
+        review_report._add_comparison(
+            rows, summaries, 30, "", "号码", "expert_avoid", [1, 2], [1, 2], 4
+        )
+        summary = summaries[("号码", "expert_avoid")]
+        self.assertEqual(summary["better"], 30)
+        self.assertEqual(summary["worse"], 1)
+        self.assertEqual(summary["best"][2], 0)
+        self.assertEqual(summary["worst"][2], 2)
+        confidence, z_score = review_report._confidence(summary, lower_is_better=True)
+        self.assertEqual(confidence, "较强")
+        self.assertGreater(z_score, 0)
+        review = {"summaries": summaries, "rows": rows}
+        comparison = review_report._model_comparison(review)
+        self.assertIn("误排较少（未证实）", comparison)
+        self.assertIn("误排", review_report._summary_table(review))
+        self.assertNotIn("专家排除", review_report._model_rank_cards(review))
+
+    def test_latest_group_review_does_not_substitute_older_or_rebuilt_candidates(self):
+        store = {"kl8": {
+            "003": {"areas": {"numbers": {
+                "field": "numbers", "label": "号码", "total": 5, "pick": 2,
+                "recommendation": ["01", "02"],
+            }}},
+            "002": {"areas": {"numbers": {
+                "field": "numbers", "label": "号码", "total": 5, "pick": 2,
+                "recommendation": ["01", "03"], "expert_consensus": ["01", "04"],
+            }}},
+        }}
+        history = [
+            {"period": "003", "numbers": ["01", "02"]},
+            {"period": "002", "numbers": ["01", "03"]},
+            {"period": "001", "numbers": ["01", "04"]},
+        ]
+        review = review_report.build_review("kl8", prediction_store=store, history=history)
+        html = review_report._plain_review_summary(review)
+        self.assertIn("未保存相似期候选，无法复盘", html)
+        self.assertIn("当期无专家参考记录", html)
+        self.assertNotIn("中 1/2", html)
 
     def test_review_report_adds_frequency_and_omission_baselines_from_older_draws(self):
         store = {
